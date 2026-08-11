@@ -1,0 +1,206 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ingfah release roadmap</title>
+<style>
+  :root { --bg:#f6f8fa; --card:#fff; --line:#d0d7de; --muted:#57606a; --late:#b45309; }
+  * { box-sizing:border-box; }
+  body { margin:0; padding:24px; background:var(--bg); color:#1f2328;
+         font:14px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif; }
+  header { display:flex; align-items:baseline; gap:16px; flex-wrap:wrap; margin-bottom:16px; }
+  h1 { font-size:20px; margin:0; }
+  .muted { color:var(--muted); font-size:12px; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:8px;
+          padding:16px; margin-bottom:16px; overflow:auto; }
+  button { font:inherit; padding:5px 12px; border:1px solid var(--line); border-radius:6px;
+           background:#f6f8fa; cursor:pointer; }
+  button:hover { background:#eef1f4; }
+  input { font:inherit; padding:6px 8px; border:1px solid var(--line); border-radius:6px; width:340px; }
+  table { border-collapse:collapse; width:100%; font-size:13px; }
+  th, td { text-align:left; padding:6px 10px; border-bottom:1px solid var(--line); white-space:nowrap; }
+  th { color:var(--muted); font-weight:600; }
+  td.late { color:var(--late); font-weight:600; }
+  .err { color:#b62324; }
+  #gate { display:none; }
+  #chart svg { max-width:none; }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>ingfah release roadmap</h1>
+  <span class="muted" id="stamp"></span>
+  <button id="refresh">Refresh</button>
+  <button id="forget">Forget token</button>
+</header>
+
+<div class="card" id="gate">
+  <p><b>Paste a GitHub read-only token.</b> It stays in this browser only and is never sent anywhere except github.com.</p>
+  <p class="muted">Make one at <a href="https://github.com/settings/personal-access-tokens" target="_blank">Settings &rarr; Developer settings &rarr; Fine-grained tokens</a>.
+     Give it <b>read</b> access to the 100x-fi repos. If the bars all start on the wrong day, add <b>Projects: read</b> too.</p>
+  <p><input id="token" type="password" placeholder="github_pat_..." autocomplete="off"> <button id="save">Save</button></p>
+  <p class="err" id="gateErr"></p>
+</div>
+
+<div class="card"><div id="chart">Loading...</div></div>
+<div class="card"><table id="table"></table></div>
+
+<script type="module">
+import mermaid from 'https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs'
+mermaid.initialize({ startOnLoad:false, securityLevel:'loose' })
+
+const OWNER = '100x-fi'
+const REPOS = ['zai-backend','zai-frontend','zai-bo-frontend','ingfah-rag','ingfah-dev-docs','zai-docs']
+const REFRESH_MS = 15 * 60 * 1000
+
+// Thai public holidays. The lunar ones (Makha, Visakha, Asarnha, Khao Phansa) move every year,
+// so check them against the Bank of Thailand calendar before rolling this list forward.
+const HOLIDAYS = [
+  '2026-01-01','2026-03-03','2026-04-06','2026-04-13','2026-04-14','2026-04-15',
+  '2026-05-01','2026-05-04','2026-06-01','2026-06-03','2026-07-28','2026-07-29',
+  '2026-07-30','2026-08-12','2026-10-13','2026-10-23','2026-12-07','2026-12-10','2026-12-31'
+]
+
+const QUERY = `
+query($owner:String!,$name:String!){
+  repository(owner:$owner,name:$name){
+    milestones(first:50, states:OPEN){
+      nodes{
+        title dueOn createdAt
+        issues(first:100){
+          nodes{
+            state
+            timelineItems(first:50, itemTypes:[PROJECT_V2_ITEM_STATUS_CHANGED_EVENT]){
+              nodes{ ... on ProjectV2ItemStatusChangedEvent { createdAt previousStatus status } }
+            }
+          }
+        }
+      }
+    }
+  }
+}`
+
+const $ = id => document.getElementById(id)
+const day = s => s ? s.slice(0,10) : null
+const token = () => localStorage.getItem('ghToken') || ''
+
+async function fetchRepo(name) {
+  const res = await fetch('https://api.github.com/graphql', {
+    method:'POST',
+    headers:{ 'Authorization':'Bearer ' + token(), 'Content-Type':'application/json' },
+    body: JSON.stringify({ query: QUERY, variables:{ owner:OWNER, name } })
+  })
+  if (res.status === 401) throw new Error('Token rejected. Make a new one and paste it again.')
+  const json = await res.json()
+  if (json.errors) throw new Error(json.errors[0].message)
+  const repo = json.data && json.data.repository
+  if (!repo) throw new Error('No access to ' + name + '. Add it to the token.')
+  return repo.milestones.nodes
+}
+
+// One release = one milestone title, merged across every repo that has it.
+function merge(all) {
+  const by = new Map()
+  for (const m of all) {
+    const k = m.title
+    if (!by.has(k)) by.set(k, { title:k, due:day(m.dueOn), born:day(m.createdAt), issues:[] })
+    const row = by.get(k)
+    if (day(m.dueOn) < row.due) row.due = day(m.dueOn)
+    if (day(m.createdAt) < row.born) row.born = day(m.createdAt)
+    row.issues.push(...m.issues.nodes)
+  }
+
+  const today = new Date().toISOString().slice(0,10)
+  const out = []
+  for (const row of by.values()) {
+    const events = row.issues.flatMap(i => i.timelineItems.nodes)
+    // first time any card in this release left the status it started on
+    const moves = events.filter(e => e.previousStatus).map(e => day(e.createdAt)).sort()
+    // last time any card in this release landed on Done
+    const dones = events.filter(e => e.status === 'Done').map(e => day(e.createdAt)).sort()
+
+    const firstMove = moves[0] || null
+    const lastDone  = dones.length ? dones[dones.length - 1] : null
+    const start = firstMove || row.born
+    const late  = !!(lastDone && lastDone > row.due)
+    const end   = late ? lastDone : row.due
+
+    out.push({
+      title: row.title,
+      name: row.title.replace(/^\d{8}\s*/, '').replace(/[:,#]/g, ''),
+      due: row.due, start, end, late, firstMove, lastDone, today,
+      total: row.issues.length,
+      closed: row.issues.filter(i => i.state === 'CLOSED').length
+    })
+  }
+  return out.sort((a,b) => a.end.localeCompare(b.end) || a.due.localeCompare(b.due))
+}
+
+const pretty = s => new Date(s + 'T00:00:00Z')
+  .toLocaleDateString('en-GB', { day:'numeric', month:'short', timeZone:'UTC' })
+
+function toGantt(rows) {
+  const lines = [
+    '%%{init: {"themeVariables": {"critBkgColor":"#f59e0b","critBorderColor":"#b45309","excludeBkgColor":"#eef2f7"}}}%%',
+    'gantt',
+    '    title Open milestones',
+    '    dateFormat YYYY-MM-DD',
+    '    axisFormat %-d %b',
+    '    tickInterval 1week',
+    '    weekday monday',
+    '    todayMarker stroke-width:3px,stroke:#d33,opacity:0.9',
+    '    excludes weekends ' + HOLIDAYS.join(' '),
+    ''
+  ]
+  let section = null
+  for (const r of rows) {
+    if (r.end !== section) { section = r.end; lines.push('    section ' + pretty(r.end)) }
+    const span = r.start >= r.end ? r.end + ', 1d' : r.start + ', ' + r.end
+    lines.push('    ' + r.name + ' ' + r.closed + '/' + r.total + ' :' + (r.late ? 'crit, ' : '') + span)
+  }
+  return lines.join('\n')
+}
+
+function toTable(rows) {
+  const head = '<tr><th>Release</th><th>Done</th><th>Started</th><th>Due</th><th>Last Done</th></tr>'
+  const body = rows.map(r => '<tr>'
+    + '<td' + (r.late ? ' class="late"' : '') + '>' + r.name + '</td>'
+    + '<td>' + r.closed + ' / ' + r.total + '</td>'
+    + '<td>' + pretty(r.start) + (r.firstMove ? '' : ' <span class="muted">(none moved)</span>') + '</td>'
+    + '<td>' + pretty(r.due) + '</td>'
+    + '<td' + (r.late ? ' class="late"' : '') + '>' + (r.lastDone ? pretty(r.lastDone) : '-') + '</td>'
+    + '</tr>').join('')
+  return head + body
+}
+
+async function load() {
+  if (!token()) { $('gate').style.display = 'block'; $('chart').textContent = ''; return }
+  $('gate').style.display = 'none'
+  $('chart').textContent = 'Loading...'
+  try {
+    const all = (await Promise.all(REPOS.map(fetchRepo))).flat()
+    const rows = merge(all)
+    const { svg } = await mermaid.render('gantt-' + Date.now(), toGantt(rows))
+    $('chart').innerHTML = svg
+    $('table').innerHTML = toTable(rows)
+    const late = rows.filter(r => r.late).length
+    $('stamp').textContent = 'updated ' + new Date().toLocaleTimeString()
+      + ' · ' + rows.length + ' open releases'
+      + (late ? ' · ' + late + ' slipped' : '')
+  } catch (e) {
+    $('chart').innerHTML = '<p class="err">' + e.message + '</p>'
+    if (/rejected|access/i.test(e.message)) { $('gate').style.display = 'block'; $('gateErr').textContent = e.message }
+  }
+}
+
+$('save').onclick = () => { localStorage.setItem('ghToken', $('token').value.trim()); $('token').value = ''; load() }
+$('token').onkeydown = e => { if (e.key === 'Enter') $('save').click() }
+$('refresh').onclick = load
+$('forget').onclick = () => { localStorage.removeItem('ghToken'); location.reload() }
+setInterval(load, REFRESH_MS)
+load()
+</script>
+</body>
+</html>
