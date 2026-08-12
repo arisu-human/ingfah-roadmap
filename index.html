@@ -23,7 +23,9 @@
   input { font:inherit; padding:6px 8px; border:1px solid var(--line); border-radius:6px; width:340px; }
   .key { display:inline-flex; align-items:center; gap:5px; font-size:12px; color:var(--muted); }
   .key i { width:11px; height:11px; border-radius:3px; display:inline-block; }
-  #viewport { height:68vh; overflow:hidden; cursor:grab; background:#fff; touch-action:none; }
+
+  /* the chart pans sideways only; the page itself scrolls up and down */
+  #viewport { overflow:hidden; cursor:grab; background:#fff; touch-action:pan-y; }
   #viewport.dragging { cursor:grabbing; }
   #pan { transform-origin:0 0; will-change:transform; }
   #pan svg { max-width:none !important; display:block; }
@@ -32,7 +34,7 @@
   th, td { text-align:left; padding:7px 10px; border-bottom:1px solid var(--line); white-space:nowrap;
            vertical-align:middle; }
   th { color:var(--muted); font-weight:600; cursor:pointer; user-select:none; position:sticky; top:0;
-       background:var(--card); }
+       background:var(--card); z-index:2; }
   th:hover { color:#1f2328; }
   th .arrow { opacity:.35; font-size:10px; }
   th.sorted .arrow { opacity:1; }
@@ -41,12 +43,27 @@
   a.rel { color:inherit; text-decoration:none; border-bottom:1px dotted var(--line); }
   a.rel:hover { color:#0969da; border-bottom-color:#0969da; }
 
-  .ratio { display:flex; width:190px; height:18px; border-radius:4px; overflow:hidden;
-           border:1px solid var(--line); background:#fff; }
-  .ratio .seg { height:100%; cursor:default; background-repeat:no-repeat; background-position:center;
-                background-size:16px 16px; box-shadow:inset -1px 0 0 rgba(255,255,255,.7); }
+  /* ratio bars */
+  .ratio { display:flex; width:170px; height:20px; border-radius:10px; overflow:hidden;
+           border:1px solid var(--line); background:#f0f2f5; }
+  .ratio .seg { height:100%; display:flex; align-items:center; justify-content:center;
+                overflow:hidden; min-width:3px; }
+  .ratio .face { width:16px; height:16px; border-radius:50%; display:block;
+                 border:1.5px solid rgba(255,255,255,.9); flex:0 0 auto; }
+
+  /* progress: cards on top, time underneath */
+  .prog { width:150px; }
+  .pbar { display:flex; height:9px; border-radius:5px; overflow:hidden; background:#eaeef2;
+          border:1px solid var(--line); }
+  .pbar + .pbar { margin-top:3px; }
+  .pbar i { display:block; height:100%; }
+  .pbar i.done  { background:#1f6feb }
+  .pbar i.ready { background:#9ecbff }
+  .pbar i.time  { background:#8c959f }
+  .pbar i.time.behind { background:#f59e0b }
+
   #tip { position:fixed; z-index:9; display:none; pointer-events:none; background:#1f2328; color:#fff;
-         font-size:12px; padding:5px 9px; border-radius:6px; white-space:nowrap;
+         font-size:12px; padding:6px 10px; border-radius:6px; white-space:nowrap; line-height:1.5;
          box-shadow:0 2px 8px rgba(0,0,0,.25); }
   #tip img { width:16px; height:16px; border-radius:50%; vertical-align:-3px; margin-right:5px; }
   .err { color:#b62324; }
@@ -76,12 +93,12 @@
     <button id="zoomIn">+</button>
     <span class="muted" id="zoomLabel">100%</span>
     <button id="today">Back to today</button>
-    <button id="fitAll">Fit all</button>
+    <button id="fitAll">Fit width</button>
     <span class="key"><i style="background:#5eead4"></i>upcoming</span>
     <span class="key"><i style="background:#3b82f6"></i>in progress</span>
     <span class="key"><i style="background:#f59e0b"></i>slipped</span>
     <span class="key"><i style="background:#d1d5db"></i>closed</span>
-    <span class="muted">drag or scroll to move &middot; ctrl or &#8984; + scroll to zoom</span>
+    <span class="muted">drag sideways &middot; ctrl or &#8984; + scroll to zoom</span>
   </div>
   <div id="viewport"><div id="pan">Loading...</div></div>
 </div>
@@ -97,9 +114,14 @@ const OWNER = '100x-fi'
 const REPOS = ['zai-backend','zai-frontend','zai-bo-frontend','ingfah-rag','ingfah-dev-docs','zai-docs']
 const PROJECT_SLICE = 'https://github.com/orgs/100x-fi/projects/6/views/5?sliceBy%5Bvalue%5D='
 const REFRESH_MS = 15 * 60 * 1000
-const CLOSED_WINDOW_DAYS = 45           // how far back closed releases stay on the chart
-const TYPE_COLOR = { Story:'#1f6feb', Bug:'#cf222e', Defect:'#8250df', Task:'#6e7781',
-                     Epic:'#bf8700', 'no type':'#c9d1d9' }
+const CLOSED_WINDOW_DAYS = 45          // how far back closed releases stay on the chart
+const QA = new Set(['kat100xfi','subzero-ice','viviintern-eng'])
+const STATUS_READY = 'Ready for Test'
+const STATUS_DONE  = 'Done'
+
+// same colours as the Type field on the board
+const TYPE_COLOR = { Story:'#2da44e', Task:'#1f6feb', Bug:'#cf222e', Defect:'#e16f24',
+                     Epic:'#8250df', 'no type':'#c9d1d9' }
 
 // Thai public holidays. The lunar ones (Makha, Visakha, Asarnha, Khao Phansa) move every year,
 // so check them against the Bank of Thailand calendar before rolling this list forward.
@@ -134,6 +156,7 @@ const $ = id => document.getElementById(id)
 const day = s => s ? s.slice(0,10) : null
 const token = () => localStorage.getItem('ghToken') || ''
 const esc = s => String(s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]))
+const pct = (a, b) => b > 0 ? Math.max(0, Math.min(100, a / b * 100)) : 0
 
 async function fetchRepo(name) {
   const res = await fetch('https://api.github.com/graphql', {
@@ -155,6 +178,7 @@ async function fetchRepo(name) {
 // One release = one milestone title, merged across every repo that has it.
 function merge(all) {
   const cutoff = new Date(Date.now() - CLOSED_WINDOW_DAYS * 864e5).toISOString().slice(0,10)
+  const today = new Date().toISOString().slice(0,10)
   const by = new Map()
   for (const m of all) {
     if (m.isClosed && day(m.dueOn) < cutoff) continue
@@ -173,32 +197,45 @@ function merge(all) {
     // first time any card in this release left the status it started on
     const moves = events.filter(e => e.previousStatus).map(e => day(e.createdAt)).sort()
     // last time any card in this release landed on Done
-    const dones = events.filter(e => e.status === 'Done').map(e => day(e.createdAt)).sort()
+    const dones = events.filter(e => e.status === STATUS_DONE).map(e => day(e.createdAt)).sort()
 
     const firstMove = moves[0] || null
     const lastDone  = dones.length ? dones[dones.length - 1] : null
     const late = !!(lastDone && lastDone > row.due)
 
-    const types = {}
+    let done = 0, ready = 0
+    const types = {}, people = new Map()
     for (const i of row.issues) {
       const t = (i.issueType && i.issueType.name) || 'no type'
       types[t] = (types[t] || 0) + 1
-    }
-    const who = new Map()
-    for (const i of row.issues) for (const a of i.assignees.nodes) {
-      const w = who.get(a.login) || { login:a.login, avatar:a.avatarUrl, n:0 }
-      w.n++; who.set(a.login, w)
+
+      // the card's status right now = the newest status change on it
+      const last = [...i.timelineItems.nodes].sort((a,b) => a.createdAt.localeCompare(b.createdAt)).pop()
+      const now = last ? last.status : null
+      if (now === STATUS_DONE || i.state === 'CLOSED') done++
+      else if (now === STATUS_READY) ready++
+
+      for (const a of i.assignees.nodes) {
+        const p = people.get(a.login) || { login:a.login, avatar:a.avatarUrl, n:0, qa:QA.has(a.login) }
+        p.n++; people.set(a.login, p)
+      }
     }
 
-    const state = row.closed ? 'closed' : late ? 'slipped' : firstMove ? 'in progress' : 'upcoming'
+    const start = firstMove || row.born
+    const span = (new Date(row.due) - new Date(start)) / 864e5
+    const gone = (new Date(today) - new Date(start)) / 864e5
+    const all = [...people.values()].sort((a,b) => b.n - a.n)
+
     out.push({
-      title: row.title,
-      name: ganttLabel(row.title),
-      due: row.due, start: firstMove || row.born, end: late ? lastDone : row.due,
-      firstMove, lastDone, late, state,
-      total: row.issues.length,
-      done: row.issues.filter(i => i.state === 'CLOSED').length,
-      types, who: [...who.values()].sort((a,b) => b.n - a.n)
+      title: row.title, name: ganttLabel(row.title),
+      due: row.due, start, end: late ? lastDone : row.due,
+      firstMove, lastDone, late,
+      state: row.closed ? 'closed' : late ? 'slipped' : firstMove ? 'in progress' : 'upcoming',
+      total: row.issues.length, done, ready, types,
+      devs: all.filter(p => !p.qa), qas: all.filter(p => p.qa),
+      cardPct: pct(done + ready, row.issues.length),
+      donePct: pct(done, row.issues.length),
+      timePct: row.closed ? 100 : pct(gone, span)
     })
   }
   return out.sort((a,b) => a.end.localeCompare(b.end) || a.due.localeCompare(b.due))
@@ -210,7 +247,7 @@ const GANTT_KEYWORDS = /^(call|click|href|title|section|gantt|dateformat|axisfor
 function ganttLabel(title) {
   const t = title.replace(/^\[Closed on \d{8}\]\s*/, '').replace(/^\d{8}\s*/, '')
                  .replace(/[:,#;]/g, '').replace(/%%/g, '%').trim()
-  return GANTT_KEYWORDS.test(t) ? '\u2022 ' + t : t
+  return GANTT_KEYWORDS.test(t) ? '• ' + t : t
 }
 
 const pretty = s => new Date(s + 'T00:00:00Z')
@@ -249,36 +286,63 @@ function toGantt(rows) {
 }
 
 /* ---- ratio bars ---- */
-function ratioBar(parts, total) {
-  if (!total) return '<span class="muted">-</span>'
-  const segs = parts.map(p => {
-    const pct = (p.n / total * 100)
-    const style = 'width:' + pct.toFixed(2) + '%;background-color:' + p.color
-      + (p.avatar ? ";background-image:url('" + p.avatar + "&s=32')" : '')
-    return '<span class="seg" style="' + style + '"'
-      + ' data-tip="' + esc(p.label) + '" data-n="' + p.n + '"'
-      + ' data-pct="' + Math.round(pct) + '"'
-      + (p.avatar ? ' data-avatar="' + esc(p.avatar) + '&s=32"' : '') + '></span>'
+// a stable soft colour per person, so a narrow slice still reads as someone
+const hue = s => { let h = 0; for (const c of s) h = (h * 31 + c.charCodeAt(0)) % 360; return h }
+
+function peopleBar(list) {
+  if (!list.length) return '<span class="muted">-</span>'
+  const total = list.reduce((s, p) => s + p.n, 0)
+  const segs = list.map(p => {
+    const w = p.n / total * 100
+    const tip = '<img src="' + esc(p.avatar) + '&s=32">' + esc(p.login)
+      + ' &middot; ' + p.n + ' cards &middot; ' + Math.round(w) + '%'
+    return '<span class="seg" style="width:' + w.toFixed(2) + '%;background:hsl(' + hue(p.login) + ',65%,88%)"'
+      + ' data-tip="' + esc(tip) + '">'
+      + '<img class="face" src="' + esc(p.avatar) + '&s=48" alt="' + esc(p.login) + '"></span>'
   }).join('')
   return '<span class="ratio">' + segs + '</span>'
 }
-const typeBar = r => ratioBar(
-  Object.entries(r.types).sort((a,b) => b[1] - a[1])
-    .map(([t, n]) => ({ label:t, n, color:TYPE_COLOR[t] || '#8b949e' })), r.total)
-const whoBar = r => ratioBar(
-  r.who.map(w => ({ label:w.login, n:w.n, color:'#e6e9ee', avatar:w.avatar })),
-  r.who.reduce((s, w) => s + w.n, 0))
+
+function typeBar(r) {
+  if (!r.total) return '<span class="muted">-</span>'
+  const segs = Object.entries(r.types).sort((a,b) => b[1] - a[1]).map(([t, n]) => {
+    const w = n / r.total * 100
+    const tip = '<b>' + esc(t) + '</b> &middot; ' + n + ' cards &middot; ' + Math.round(w) + '%'
+    return '<span class="seg" style="width:' + w.toFixed(2) + '%;background:'
+      + (TYPE_COLOR[t] || '#8b949e') + '" data-tip="' + esc(tip) + '"></span>'
+  }).join('')
+  return '<span class="ratio">' + segs + '</span>'
+}
+
+/* ---- progress: cards on top, clock underneath ---- */
+function progressCell(r) {
+  const behind = r.timePct > r.cardPct + 10 && r.state !== 'closed'
+  const cardTip = '<b>Cards</b> ' + r.done + ' done'
+    + (r.ready ? ' + ' + r.ready + ' ready for test' : '') + ' of ' + r.total
+    + ' &middot; ' + Math.round(r.cardPct) + '%'
+  const timeTip = '<b>Time</b> ' + Math.round(r.timePct) + '% gone &middot; '
+    + pretty(r.start) + ' to ' + pretty(r.due)
+    + (behind ? '<br>time is ahead of the cards' : '')
+  return '<div class="prog">'
+    + '<span class="pbar" data-tip="' + esc(cardTip) + '">'
+    +   '<i class="done" style="width:' + r.donePct.toFixed(1) + '%"></i>'
+    +   '<i class="ready" style="width:' + (r.cardPct - r.donePct).toFixed(1) + '%"></i></span>'
+    + '<span class="pbar" data-tip="' + esc(timeTip) + '">'
+    +   '<i class="time' + (behind ? ' behind' : '') + '" style="width:' + r.timePct.toFixed(1) + '%"></i></span>'
+    + '</div>'
+}
 
 /* ---- table ---- */
 const COLS = [
-  { k:'name',  h:'Release',  cell:r => '<a class="rel" target="_blank" rel="noopener" href="'
+  { k:'name',  h:'Release', cell:r => '<a class="rel" target="_blank" rel="noopener" href="'
       + PROJECT_SLICE + encodeURIComponent(r.title) + '">' + esc(r.name) + '</a>',
     val:r => r.name.toLowerCase() },
   { k:'state', h:'State',    cell:r => esc(r.state), val:r => r.state },
-  { k:'done',  h:'Done',     cell:r => r.done + ' / ' + r.total,
-    val:r => r.total ? r.done / r.total : -1 },
+  // sorts by how far the cards are BEHIND the clock, most behind first
+  { k:'prog',  h:'Progress', cell:progressCell, val:r => r.cardPct - r.timePct },
   { k:'types', h:'Card mix', cell:typeBar, val:r => r.total },
-  { k:'who',   h:'Who',      cell:whoBar,  val:r => r.who.length },
+  { k:'devs',  h:'Devs',     cell:r => peopleBar(r.devs), val:r => r.devs.length },
+  { k:'qas',   h:'QAs',      cell:r => peopleBar(r.qas),  val:r => r.qas.length },
   { k:'start', h:'Started',  cell:r => pretty(r.start) + (r.firstMove ? '' : ' <span class="muted">(none moved)</span>'),
     val:r => r.start },
   { k:'due',   h:'Due',      cell:r => pretty(r.due), val:r => r.due },
@@ -307,79 +371,80 @@ function drawTable() {
   })
 }
 
-/* ---- tooltip on the ratio bars ---- */
+/* ---- hover tooltip ---- */
 const tip = $('tip')
 document.addEventListener('mousemove', e => {
-  const seg = e.target.closest && e.target.closest('.seg')
-  if (!seg) { tip.style.display = 'none'; return }
-  tip.innerHTML = (seg.dataset.avatar ? '<img src="' + seg.dataset.avatar + '">' : '')
-    + '<b>' + esc(seg.dataset.tip) + '</b> &middot; ' + seg.dataset.n + ' cards &middot; ' + seg.dataset.pct + '%'
+  const el = e.target.closest && e.target.closest('[data-tip]')
+  if (!el) { tip.style.display = 'none'; return }
+  tip.innerHTML = el.dataset.tip
   tip.style.display = 'block'
   tip.style.left = Math.min(e.clientX + 14, innerWidth - tip.offsetWidth - 8) + 'px'
   tip.style.top = (e.clientY + 16) + 'px'
 })
 
-/* ---- zoom and pan ---- */
+/* ---- sideways pan and zoom (never vertical) ---- */
 const view = $('viewport'), pan = $('pan')
-let scale = 1, tx = 0, ty = 0
+let scale = 1, tx = 0
+const TOP = 12
 
 function apply() {
-  pan.style.transform = 'translate(' + tx + 'px,' + ty + 'px) scale(' + scale + ')'
+  pan.style.transform = 'translate(' + tx + 'px,' + TOP + 'px) scale(' + scale + ')'
   $('zoomLabel').textContent = Math.round(scale * 100) + '%'
+  const svg = pan.querySelector('svg')
+  if (svg) view.style.height = (svg.getBoundingClientRect().height + TOP * 2) + 'px'
 }
-function zoomAt(factor, cx, cy) {
+function zoomAt(factor, cx) {
   const next = Math.min(4, Math.max(0.15, scale * factor))
-  const k = next / scale
-  tx = cx - (cx - tx) * k; ty = cy - (cy - ty) * k; scale = next
+  tx = cx - (cx - tx) * (next / scale)
+  scale = next
   apply()
 }
-function fitAll() {
+function fitWidth() {
   const svg = pan.querySelector('svg'); if (!svg) return
   const w = svg.getBoundingClientRect().width / scale
-  const h = svg.getBoundingClientRect().height / scale
-  scale = Math.min((view.clientWidth - 24) / w, (view.clientHeight - 24) / h, 1)
-  tx = 12; ty = 12; apply()
+  scale = Math.min((view.clientWidth - 24) / w, 4)
+  tx = 12; apply()
 }
-// keep the timeline at a readable size and put today in the middle
 function backToToday() {
   const svg = pan.querySelector('svg'); if (!svg) return
-  scale = 1
+  scale = 1; tx = 0; apply()
   const line = svg.querySelector('.today')
-  const x = line ? (line.getBoundingClientRect().left - svg.getBoundingClientRect().left) / (scale || 1) : 0
-  tx = x ? (view.clientWidth / 2 - x) : 12
-  ty = 12; apply()
+  if (!line) { tx = 12; apply(); return }
+  const x = line.getBoundingClientRect().left - svg.getBoundingClientRect().left
+  tx = view.clientWidth / 2 - x
+  apply()
 }
 
 view.addEventListener('wheel', e => {
-  e.preventDefault()
-  const r = view.getBoundingClientRect()
-  if (e.ctrlKey || e.metaKey) zoomAt(e.deltaY < 0 ? 1.12 : 1 / 1.12, e.clientX - r.left, e.clientY - r.top)
-  else {
-    // a plain trackpad swipe or a shift+wheel both move along the timeline
-    tx -= (e.shiftKey && !e.deltaX) ? e.deltaY : e.deltaX
-    if (!e.shiftKey) ty -= e.deltaY
+  if (e.ctrlKey || e.metaKey) {
+    e.preventDefault()
+    zoomAt(e.deltaY < 0 ? 1.12 : 1 / 1.12, e.clientX - view.getBoundingClientRect().left)
+  } else if (Math.abs(e.deltaX) > Math.abs(e.deltaY) || e.shiftKey) {
+    e.preventDefault()                       // sideways swipe moves the timeline
+    tx -= e.shiftKey && !e.deltaX ? e.deltaY : e.deltaX
     apply()
   }
+  // a plain up/down scroll is left alone, so the page scrolls as normal
 }, { passive:false })
 
-let dragging = false, lastX = 0, lastY = 0
+let dragging = false, lastX = 0
 view.addEventListener('pointerdown', e => {
-  dragging = true; lastX = e.clientX; lastY = e.clientY
+  dragging = true; lastX = e.clientX
   view.classList.add('dragging'); view.setPointerCapture(e.pointerId)
 })
 view.addEventListener('pointermove', e => {
   if (!dragging) return
-  tx += e.clientX - lastX; ty += e.clientY - lastY
-  lastX = e.clientX; lastY = e.clientY; apply()
+  tx += e.clientX - lastX; lastX = e.clientX; apply()   // sideways only
 })
 const stopDrag = () => { dragging = false; view.classList.remove('dragging') }
 view.addEventListener('pointerup', stopDrag)
 view.addEventListener('pointercancel', stopDrag)
+addEventListener('resize', apply)
 
-$('zoomIn').onclick  = () => zoomAt(1.25, view.clientWidth / 2, view.clientHeight / 2)
-$('zoomOut').onclick = () => zoomAt(1 / 1.25, view.clientWidth / 2, view.clientHeight / 2)
+$('zoomIn').onclick  = () => zoomAt(1.25, view.clientWidth / 2)
+$('zoomOut').onclick = () => zoomAt(1 / 1.25, view.clientWidth / 2)
 $('today').onclick = backToToday
-$('fitAll').onclick = fitAll
+$('fitAll').onclick = fitWidth
 
 /* ---- load ---- */
 async function load() {
@@ -396,9 +461,10 @@ async function load() {
     pan.innerHTML = svg
     backToToday()
     const n = s => rowsCache.filter(r => r.state === s).length
-    const people = new Set(rowsCache.flatMap(r => r.who.map(w => w.login))).size
+    const devs = new Set(rowsCache.flatMap(r => r.devs.map(p => p.login))).size
+    const qas  = new Set(rowsCache.flatMap(r => r.qas.map(p => p.login))).size
     $('stamp').textContent = 'updated ' + new Date().toLocaleTimeString()
-      + ' · ' + rowsCache.length + ' releases · ' + people + ' people'
+      + ' · ' + rowsCache.length + ' releases · ' + devs + ' devs · ' + qas + ' QAs'
       + (n('slipped') ? ' · ' + n('slipped') + ' slipped' : '')
   } catch (e) {
     pan.innerHTML = '<p class="err" style="padding:16px">' + esc(e.message) + '</p>'
