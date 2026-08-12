@@ -193,7 +193,7 @@ function merge(all) {
     const state = row.closed ? 'closed' : late ? 'slipped' : firstMove ? 'in progress' : 'upcoming'
     out.push({
       title: row.title,
-      name: row.title.replace(/^\[Closed on \d{8}\]\s*/, '').replace(/^\d{8}\s*/, '').replace(/[:,#]/g, ''),
+      name: ganttLabel(row.title),
       due: row.due, start: firstMove || row.born, end: late ? lastDone : row.due,
       firstMove, lastDone, late, state,
       total: row.issues.length,
@@ -202,6 +202,15 @@ function merge(all) {
     })
   }
   return out.sort((a,b) => a.end.localeCompare(b.end) || a.due.localeCompare(b.due))
+}
+
+// Mermaid's gantt parser treats a few words as syntax. Only the FIRST word of a task label
+// matters (verified against the real parser), so a bullet in front makes any title safe.
+const GANTT_KEYWORDS = /^(call|click|href|title|section|gantt|dateformat|axisformat|tickinterval|excludes|includes|todaymarker|inclusiveenddates|topaxis|weekday|weekend|acctitle|accdescr)\b/i
+function ganttLabel(title) {
+  const t = title.replace(/^\[Closed on \d{8}\]\s*/, '').replace(/^\d{8}\s*/, '')
+                 .replace(/[:,#;]/g, '').replace(/%%/g, '%').trim()
+  return GANTT_KEYWORDS.test(t) ? '\u2022 ' + t : t
 }
 
 const pretty = s => new Date(s + 'T00:00:00Z')
@@ -379,10 +388,13 @@ async function load() {
   try {
     const all = (await Promise.all(REPOS.map(fetchRepo))).flat()
     rowsCache = merge(all)
-    const { svg } = await mermaid.render('gantt-' + Date.now(), toGantt(rowsCache))
+    drawTable()
+    const def = toGantt(rowsCache)
+    try { await mermaid.parse(def) }
+    catch (pe) { throw new Error('Chart syntax problem, the table below is still correct. ' + pe.message) }
+    const { svg } = await mermaid.render('gantt-' + Date.now(), def)
     pan.innerHTML = svg
     backToToday()
-    drawTable()
     const n = s => rowsCache.filter(r => r.state === s).length
     const people = new Set(rowsCache.flatMap(r => r.who.map(w => w.login))).size
     $('stamp').textContent = 'updated ' + new Date().toLocaleTimeString()
