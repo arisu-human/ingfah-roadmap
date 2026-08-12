@@ -9,22 +9,33 @@
   * { box-sizing:border-box; }
   body { margin:0; padding:24px; background:var(--bg); color:#1f2328;
          font:14px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif; }
-  header { display:flex; align-items:baseline; gap:16px; flex-wrap:wrap; margin-bottom:16px; }
+  header { display:flex; align-items:baseline; gap:12px; flex-wrap:wrap; margin-bottom:16px; }
   h1 { font-size:20px; margin:0; }
   .muted { color:var(--muted); font-size:12px; }
   .card { background:var(--card); border:1px solid var(--line); border-radius:8px;
-          padding:16px; margin-bottom:16px; overflow:auto; }
-  button { font:inherit; padding:5px 12px; border:1px solid var(--line); border-radius:6px;
+          padding:16px; margin-bottom:16px; }
+  .card.flush { padding:0; overflow:hidden; }
+  .bar { display:flex; align-items:center; gap:8px; padding:8px 12px; border-bottom:1px solid var(--line); }
+  button { font:inherit; padding:4px 10px; border:1px solid var(--line); border-radius:6px;
            background:#f6f8fa; cursor:pointer; }
   button:hover { background:#eef1f4; }
   input { font:inherit; padding:6px 8px; border:1px solid var(--line); border-radius:6px; width:340px; }
+  #viewport { height:70vh; overflow:hidden; cursor:grab; background:#fff; touch-action:none; }
+  #viewport.dragging { cursor:grabbing; }
+  #pan { transform-origin:0 0; will-change:transform; }
+  #pan svg { max-width:none !important; display:block; }
   table { border-collapse:collapse; width:100%; font-size:13px; }
   th, td { text-align:left; padding:6px 10px; border-bottom:1px solid var(--line); white-space:nowrap; }
   th { color:var(--muted); font-weight:600; }
   td.late { color:var(--late); font-weight:600; }
+  .pill { display:inline-block; padding:0 6px; margin-right:4px; border-radius:10px;
+          font-size:11px; line-height:18px; color:#fff; }
+  .Story{background:#1f6feb} .Bug{background:#cf222e} .Defect{background:#8250df}
+  .Task{background:#6e7781} .Epic{background:#bf8700} .none{background:#c9d1d9;color:#57606a}
+  .who img { width:20px; height:20px; border-radius:50%; margin-right:-6px;
+             border:1.5px solid #fff; vertical-align:middle; }
   .err { color:#b62324; }
   #gate { display:none; }
-  #chart svg { max-width:none; }
 </style>
 </head>
 <body>
@@ -37,14 +48,24 @@
 </header>
 
 <div class="card" id="gate">
-  <p><b>Paste a GitHub read-only token.</b> It stays in this browser only and is never sent anywhere except github.com.</p>
-  <p class="muted">Make one at <a href="https://github.com/settings/personal-access-tokens" target="_blank">Settings &rarr; Developer settings &rarr; Fine-grained tokens</a>.
-     Give it <b>read</b> access to the 100x-fi repos. If the bars all start on the wrong day, add <b>Projects: read</b> too.</p>
-  <p><input id="token" type="password" placeholder="github_pat_..." autocomplete="off"> <button id="save">Save</button></p>
+  <p><b>Paste a GitHub token.</b> It stays in this browser only and is never sent anywhere except github.com.</p>
+  <p class="muted">Classic token at <a href="https://github.com/settings/tokens" target="_blank">Settings &rarr; Developer settings &rarr; Tokens (classic)</a>,
+     with <b>repo</b> and <b>read:project</b>. If the org uses single sign-on, click <b>Configure SSO</b> on the token and authorise 100x-fi.</p>
+  <p><input id="token" type="password" placeholder="ghp_..." autocomplete="off"> <button id="save">Save</button></p>
   <p class="err" id="gateErr"></p>
 </div>
 
-<div class="card"><div id="chart">Loading...</div></div>
+<div class="card flush">
+  <div class="bar">
+    <button id="zoomOut">&minus;</button>
+    <button id="zoomIn">+</button>
+    <button id="fit">Re-center</button>
+    <span class="muted" id="zoomLabel">100%</span>
+    <span class="muted">drag to move &middot; scroll to move &middot; ctrl or &#8984; + scroll to zoom</span>
+  </div>
+  <div id="viewport"><div id="pan">Loading...</div></div>
+</div>
+
 <div class="card"><table id="table"></table></div>
 
 <script type="module">
@@ -54,6 +75,7 @@ mermaid.initialize({ startOnLoad:false, securityLevel:'loose' })
 const OWNER = '100x-fi'
 const REPOS = ['zai-backend','zai-frontend','zai-bo-frontend','ingfah-rag','ingfah-dev-docs','zai-docs']
 const REFRESH_MS = 15 * 60 * 1000
+const TYPES = ['Story','Bug','Defect','Task','Epic']
 
 // Thai public holidays. The lunar ones (Makha, Visakha, Asarnha, Khao Phansa) move every year,
 // so check them against the Bank of Thailand calendar before rolling this list forward.
@@ -72,6 +94,8 @@ query($owner:String!,$name:String!){
         issues(first:100){
           nodes{
             state
+            issueType{ name }
+            assignees(first:5){ nodes{ login avatarUrl } }
             timelineItems(first:50, itemTypes:[PROJECT_V2_ITEM_STATUS_CHANGED_EVENT]){
               nodes{ ... on ProjectV2ItemStatusChangedEvent { createdAt previousStatus status } }
             }
@@ -96,7 +120,7 @@ async function fetchRepo(name) {
   const json = await res.json()
   if (json.errors) throw new Error(json.errors[0].message)
   const repo = json.data && json.data.repository
-  if (!repo) throw new Error('No access to ' + name + '. Add it to the token.')
+  if (!repo) throw new Error('No access to ' + name + '. Check the token scopes and SSO.')
   return repo.milestones.nodes
 }
 
@@ -104,15 +128,13 @@ async function fetchRepo(name) {
 function merge(all) {
   const by = new Map()
   for (const m of all) {
-    const k = m.title
-    if (!by.has(k)) by.set(k, { title:k, due:day(m.dueOn), born:day(m.createdAt), issues:[] })
-    const row = by.get(k)
+    if (!by.has(m.title)) by.set(m.title, { title:m.title, due:day(m.dueOn), born:day(m.createdAt), issues:[] })
+    const row = by.get(m.title)
     if (day(m.dueOn) < row.due) row.due = day(m.dueOn)
     if (day(m.createdAt) < row.born) row.born = day(m.createdAt)
     row.issues.push(...m.issues.nodes)
   }
 
-  const today = new Date().toISOString().slice(0,10)
   const out = []
   for (const row of by.values()) {
     const events = row.issues.flatMap(i => i.timelineItems.nodes)
@@ -125,14 +147,24 @@ function merge(all) {
     const lastDone  = dones.length ? dones[dones.length - 1] : null
     const start = firstMove || row.born
     const late  = !!(lastDone && lastDone > row.due)
-    const end   = late ? lastDone : row.due
+
+    const types = {}
+    for (const i of row.issues) {
+      const t = (i.issueType && i.issueType.name) || 'no type'
+      types[t] = (types[t] || 0) + 1
+    }
+
+    const who = new Map()
+    for (const i of row.issues) for (const a of i.assignees.nodes) who.set(a.login, a.avatarUrl)
 
     out.push({
       title: row.title,
       name: row.title.replace(/^\d{8}\s*/, '').replace(/[:,#]/g, ''),
-      due: row.due, start, end, late, firstMove, lastDone, today,
+      due: row.due, start, late, firstMove, lastDone,
+      end: late ? lastDone : row.due,
       total: row.issues.length,
-      closed: row.issues.filter(i => i.state === 'CLOSED').length
+      closed: row.issues.filter(i => i.state === 'CLOSED').length,
+      types, who
     })
   }
   return out.sort((a,b) => a.end.localeCompare(b.end) || a.due.localeCompare(b.due))
@@ -163,11 +195,26 @@ function toGantt(rows) {
   return lines.join('\n')
 }
 
+function typePills(types) {
+  const order = TYPES.filter(t => types[t]).concat(Object.keys(types).filter(t => !TYPES.includes(t)))
+  return order.map(t =>
+    '<span class="pill ' + (TYPES.includes(t) ? t : 'none') + '">' + t + ' ' + types[t] + '</span>').join('')
+}
+
+function avatars(who) {
+  if (!who.size) return '<span class="muted">-</span>'
+  return [...who].map(([login, url]) =>
+    '<img src="' + url + '&s=40" title="' + login + '" alt="' + login + '">').join('')
+}
+
 function toTable(rows) {
-  const head = '<tr><th>Release</th><th>Done</th><th>Started</th><th>Due</th><th>Last Done</th></tr>'
+  const head = '<tr><th>Release</th><th>Done</th><th>Cards</th><th>Who</th>'
+             + '<th>Started</th><th>Due</th><th>Last Done</th></tr>'
   const body = rows.map(r => '<tr>'
     + '<td' + (r.late ? ' class="late"' : '') + '>' + r.name + '</td>'
     + '<td>' + r.closed + ' / ' + r.total + '</td>'
+    + '<td>' + typePills(r.types) + '</td>'
+    + '<td class="who">' + avatars(r.who) + '</td>'
     + '<td>' + pretty(r.start) + (r.firstMove ? '' : ' <span class="muted">(none moved)</span>') + '</td>'
     + '<td>' + pretty(r.due) + '</td>'
     + '<td' + (r.late ? ' class="late"' : '') + '>' + (r.lastDone ? pretty(r.lastDone) : '-') + '</td>'
@@ -175,22 +222,76 @@ function toTable(rows) {
   return head + body
 }
 
+/* ---- zoom and pan ---- */
+const view = $('viewport'), pan = $('pan')
+let scale = 1, tx = 0, ty = 0
+
+function apply() {
+  pan.style.transform = 'translate(' + tx + 'px,' + ty + 'px) scale(' + scale + ')'
+  $('zoomLabel').textContent = Math.round(scale * 100) + '%'
+}
+function zoomAt(factor, cx, cy) {
+  const next = Math.min(4, Math.max(0.2, scale * factor))
+  const k = next / scale
+  tx = cx - (cx - tx) * k
+  ty = cy - (cy - ty) * k
+  scale = next
+  apply()
+}
+function fit() {
+  const svg = pan.querySelector('svg')
+  scale = 1; tx = 0; ty = 0
+  if (svg) {
+    const w = svg.getBoundingClientRect().width / scale
+    if (w > 0) scale = Math.min(1, (view.clientWidth - 24) / w)
+    tx = 12; ty = 12
+  }
+  apply()
+}
+
+view.addEventListener('wheel', e => {
+  e.preventDefault()
+  const r = view.getBoundingClientRect()
+  if (e.ctrlKey || e.metaKey) zoomAt(e.deltaY < 0 ? 1.12 : 1 / 1.12, e.clientX - r.left, e.clientY - r.top)
+  else { tx -= e.deltaX; ty -= e.deltaY; apply() }
+}, { passive:false })
+
+let dragging = false, lastX = 0, lastY = 0
+view.addEventListener('pointerdown', e => {
+  dragging = true; lastX = e.clientX; lastY = e.clientY
+  view.classList.add('dragging'); view.setPointerCapture(e.pointerId)
+})
+view.addEventListener('pointermove', e => {
+  if (!dragging) return
+  tx += e.clientX - lastX; ty += e.clientY - lastY
+  lastX = e.clientX; lastY = e.clientY; apply()
+})
+const stop = e => { dragging = false; view.classList.remove('dragging') }
+view.addEventListener('pointerup', stop)
+view.addEventListener('pointercancel', stop)
+
+$('zoomIn').onclick  = () => zoomAt(1.25, view.clientWidth / 2, view.clientHeight / 2)
+$('zoomOut').onclick = () => zoomAt(1 / 1.25, view.clientWidth / 2, view.clientHeight / 2)
+$('fit').onclick = fit
+
+/* ---- load ---- */
 async function load() {
-  if (!token()) { $('gate').style.display = 'block'; $('chart').textContent = ''; return }
+  if (!token()) { $('gate').style.display = 'block'; pan.textContent = ''; return }
   $('gate').style.display = 'none'
-  $('chart').textContent = 'Loading...'
   try {
     const all = (await Promise.all(REPOS.map(fetchRepo))).flat()
     const rows = merge(all)
     const { svg } = await mermaid.render('gantt-' + Date.now(), toGantt(rows))
-    $('chart').innerHTML = svg
+    pan.innerHTML = svg
+    fit()
     $('table').innerHTML = toTable(rows)
     const late = rows.filter(r => r.late).length
+    const people = new Set(rows.flatMap(r => [...r.who.keys()])).size
     $('stamp').textContent = 'updated ' + new Date().toLocaleTimeString()
-      + ' · ' + rows.length + ' open releases'
+      + ' · ' + rows.length + ' open releases · ' + people + ' people'
       + (late ? ' · ' + late + ' slipped' : '')
   } catch (e) {
-    $('chart').innerHTML = '<p class="err">' + e.message + '</p>'
+    pan.innerHTML = '<p class="err" style="padding:16px">' + e.message + '</p>'
     if (/rejected|access/i.test(e.message)) { $('gate').style.display = 'block'; $('gateErr').textContent = e.message }
   }
 }
