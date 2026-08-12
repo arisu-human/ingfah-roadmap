@@ -15,25 +15,40 @@
   .card { background:var(--card); border:1px solid var(--line); border-radius:8px;
           padding:16px; margin-bottom:16px; }
   .card.flush { padding:0; overflow:hidden; }
-  .bar { display:flex; align-items:center; gap:8px; padding:8px 12px; border-bottom:1px solid var(--line); }
+  .bar { display:flex; align-items:center; gap:8px; padding:8px 12px;
+         border-bottom:1px solid var(--line); flex-wrap:wrap; }
   button { font:inherit; padding:4px 10px; border:1px solid var(--line); border-radius:6px;
            background:#f6f8fa; cursor:pointer; }
   button:hover { background:#eef1f4; }
   input { font:inherit; padding:6px 8px; border:1px solid var(--line); border-radius:6px; width:340px; }
-  #viewport { height:70vh; overflow:hidden; cursor:grab; background:#fff; touch-action:none; }
+  .key { display:inline-flex; align-items:center; gap:5px; font-size:12px; color:var(--muted); }
+  .key i { width:11px; height:11px; border-radius:3px; display:inline-block; }
+  #viewport { height:68vh; overflow:hidden; cursor:grab; background:#fff; touch-action:none; }
   #viewport.dragging { cursor:grabbing; }
   #pan { transform-origin:0 0; will-change:transform; }
   #pan svg { max-width:none !important; display:block; }
+
   table { border-collapse:collapse; width:100%; font-size:13px; }
-  th, td { text-align:left; padding:6px 10px; border-bottom:1px solid var(--line); white-space:nowrap; }
-  th { color:var(--muted); font-weight:600; }
+  th, td { text-align:left; padding:7px 10px; border-bottom:1px solid var(--line); white-space:nowrap;
+           vertical-align:middle; }
+  th { color:var(--muted); font-weight:600; cursor:pointer; user-select:none; position:sticky; top:0;
+       background:var(--card); }
+  th:hover { color:#1f2328; }
+  th .arrow { opacity:.35; font-size:10px; }
+  th.sorted .arrow { opacity:1; }
+  tr.closed td { color:#8c959f; }
   td.late { color:var(--late); font-weight:600; }
-  .pill { display:inline-block; padding:0 6px; margin-right:4px; border-radius:10px;
-          font-size:11px; line-height:18px; color:#fff; }
-  .Story{background:#1f6feb} .Bug{background:#cf222e} .Defect{background:#8250df}
-  .Task{background:#6e7781} .Epic{background:#bf8700} .none{background:#c9d1d9;color:#57606a}
-  .who img { width:20px; height:20px; border-radius:50%; margin-right:-6px;
-             border:1.5px solid #fff; vertical-align:middle; }
+  a.rel { color:inherit; text-decoration:none; border-bottom:1px dotted var(--line); }
+  a.rel:hover { color:#0969da; border-bottom-color:#0969da; }
+
+  .ratio { display:flex; width:190px; height:18px; border-radius:4px; overflow:hidden;
+           border:1px solid var(--line); background:#fff; }
+  .ratio .seg { height:100%; cursor:default; background-repeat:no-repeat; background-position:center;
+                background-size:16px 16px; box-shadow:inset -1px 0 0 rgba(255,255,255,.7); }
+  #tip { position:fixed; z-index:9; display:none; pointer-events:none; background:#1f2328; color:#fff;
+         font-size:12px; padding:5px 9px; border-radius:6px; white-space:nowrap;
+         box-shadow:0 2px 8px rgba(0,0,0,.25); }
+  #tip img { width:16px; height:16px; border-radius:50%; vertical-align:-3px; margin-right:5px; }
   .err { color:#b62324; }
   #gate { display:none; }
 </style>
@@ -59,14 +74,20 @@
   <div class="bar">
     <button id="zoomOut">&minus;</button>
     <button id="zoomIn">+</button>
-    <button id="fit">Re-center</button>
     <span class="muted" id="zoomLabel">100%</span>
-    <span class="muted">drag to move &middot; scroll to move &middot; ctrl or &#8984; + scroll to zoom</span>
+    <button id="today">Back to today</button>
+    <button id="fitAll">Fit all</button>
+    <span class="key"><i style="background:#5eead4"></i>upcoming</span>
+    <span class="key"><i style="background:#3b82f6"></i>in progress</span>
+    <span class="key"><i style="background:#f59e0b"></i>slipped</span>
+    <span class="key"><i style="background:#d1d5db"></i>closed</span>
+    <span class="muted">drag or scroll to move &middot; ctrl or &#8984; + scroll to zoom</span>
   </div>
   <div id="viewport"><div id="pan">Loading...</div></div>
 </div>
 
 <div class="card"><table id="table"></table></div>
+<div id="tip"></div>
 
 <script type="module">
 import mermaid from 'https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs'
@@ -74,8 +95,11 @@ mermaid.initialize({ startOnLoad:false, securityLevel:'loose' })
 
 const OWNER = '100x-fi'
 const REPOS = ['zai-backend','zai-frontend','zai-bo-frontend','ingfah-rag','ingfah-dev-docs','zai-docs']
+const PROJECT_SLICE = 'https://github.com/orgs/100x-fi/projects/6/views/5?sliceBy%5Bvalue%5D='
 const REFRESH_MS = 15 * 60 * 1000
-const TYPES = ['Story','Bug','Defect','Task','Epic']
+const CLOSED_WINDOW_DAYS = 45           // how far back closed releases stay on the chart
+const TYPE_COLOR = { Story:'#1f6feb', Bug:'#cf222e', Defect:'#8250df', Task:'#6e7781',
+                     Epic:'#bf8700', 'no type':'#c9d1d9' }
 
 // Thai public holidays. The lunar ones (Makha, Visakha, Asarnha, Khao Phansa) move every year,
 // so check them against the Bank of Thailand calendar before rolling this list forward.
@@ -85,30 +109,31 @@ const HOLIDAYS = [
   '2026-07-30','2026-08-12','2026-10-13','2026-10-23','2026-12-07','2026-12-10','2026-12-31'
 ]
 
+const MS_FIELDS = `
+  title dueOn createdAt
+  issues(first:100){
+    nodes{
+      state
+      issueType{ name }
+      assignees(first:5){ nodes{ login avatarUrl } }
+      timelineItems(first:50, itemTypes:[PROJECT_V2_ITEM_STATUS_CHANGED_EVENT]){
+        nodes{ ... on ProjectV2ItemStatusChangedEvent { createdAt previousStatus status } }
+      }
+    }
+  }`
+
 const QUERY = `
 query($owner:String!,$name:String!){
   repository(owner:$owner,name:$name){
-    milestones(first:50, states:OPEN){
-      nodes{
-        title dueOn createdAt
-        issues(first:100){
-          nodes{
-            state
-            issueType{ name }
-            assignees(first:5){ nodes{ login avatarUrl } }
-            timelineItems(first:50, itemTypes:[PROJECT_V2_ITEM_STATUS_CHANGED_EVENT]){
-              nodes{ ... on ProjectV2ItemStatusChangedEvent { createdAt previousStatus status } }
-            }
-          }
-        }
-      }
-    }
+    open: milestones(first:50, states:OPEN){ nodes{ ${MS_FIELDS} } }
+    recent: milestones(first:15, states:CLOSED, orderBy:{field:DUE_DATE, direction:DESC}){ nodes{ ${MS_FIELDS} } }
   }
 }`
 
 const $ = id => document.getElementById(id)
 const day = s => s ? s.slice(0,10) : null
 const token = () => localStorage.getItem('ghToken') || ''
+const esc = s => String(s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]))
 
 async function fetchRepo(name) {
   const res = await fetch('https://api.github.com/graphql', {
@@ -121,17 +146,24 @@ async function fetchRepo(name) {
   if (json.errors) throw new Error(json.errors[0].message)
   const repo = json.data && json.data.repository
   if (!repo) throw new Error('No access to ' + name + '. Check the token scopes and SSO.')
-  return repo.milestones.nodes
+  return [
+    ...repo.open.nodes.map(m => ({ ...m, isClosed:false })),
+    ...repo.recent.nodes.map(m => ({ ...m, isClosed:true }))
+  ]
 }
 
 // One release = one milestone title, merged across every repo that has it.
 function merge(all) {
+  const cutoff = new Date(Date.now() - CLOSED_WINDOW_DAYS * 864e5).toISOString().slice(0,10)
   const by = new Map()
   for (const m of all) {
-    if (!by.has(m.title)) by.set(m.title, { title:m.title, due:day(m.dueOn), born:day(m.createdAt), issues:[] })
+    if (m.isClosed && day(m.dueOn) < cutoff) continue
+    if (!by.has(m.title)) by.set(m.title, { title:m.title, due:day(m.dueOn), born:day(m.createdAt),
+                                            issues:[], closed:true })
     const row = by.get(m.title)
     if (day(m.dueOn) < row.due) row.due = day(m.dueOn)
     if (day(m.createdAt) < row.born) row.born = day(m.createdAt)
+    if (!m.isClosed) row.closed = false        // open anywhere means the release is still open
     row.issues.push(...m.issues.nodes)
   }
 
@@ -145,26 +177,28 @@ function merge(all) {
 
     const firstMove = moves[0] || null
     const lastDone  = dones.length ? dones[dones.length - 1] : null
-    const start = firstMove || row.born
-    const late  = !!(lastDone && lastDone > row.due)
+    const late = !!(lastDone && lastDone > row.due)
 
     const types = {}
     for (const i of row.issues) {
       const t = (i.issueType && i.issueType.name) || 'no type'
       types[t] = (types[t] || 0) + 1
     }
-
     const who = new Map()
-    for (const i of row.issues) for (const a of i.assignees.nodes) who.set(a.login, a.avatarUrl)
+    for (const i of row.issues) for (const a of i.assignees.nodes) {
+      const w = who.get(a.login) || { login:a.login, avatar:a.avatarUrl, n:0 }
+      w.n++; who.set(a.login, w)
+    }
 
+    const state = row.closed ? 'closed' : late ? 'slipped' : firstMove ? 'in progress' : 'upcoming'
     out.push({
       title: row.title,
-      name: row.title.replace(/^\d{8}\s*/, '').replace(/[:,#]/g, ''),
-      due: row.due, start, late, firstMove, lastDone,
-      end: late ? lastDone : row.due,
+      name: row.title.replace(/^\[Closed on \d{8}\]\s*/, '').replace(/^\d{8}\s*/, '').replace(/[:,#]/g, ''),
+      due: row.due, start: firstMove || row.born, end: late ? lastDone : row.due,
+      firstMove, lastDone, late, state,
       total: row.issues.length,
-      closed: row.issues.filter(i => i.state === 'CLOSED').length,
-      types, who
+      done: row.issues.filter(i => i.state === 'CLOSED').length,
+      types, who: [...who.values()].sort((a,b) => b.n - a.n)
     })
   }
   return out.sort((a,b) => a.end.localeCompare(b.end) || a.due.localeCompare(b.due))
@@ -173,11 +207,20 @@ function merge(all) {
 const pretty = s => new Date(s + 'T00:00:00Z')
   .toLocaleDateString('en-GB', { day:'numeric', month:'short', timeZone:'UTC' })
 
+const THEME = {
+  taskBkgColor:'#3b82f6',       taskBorderColor:'#1d4ed8',        // in progress
+  activeTaskBkgColor:'#5eead4', activeTaskBorderColor:'#0d9488',  // upcoming
+  doneTaskBkgColor:'#d1d5db',   doneTaskBorderColor:'#9ca3af',    // closed
+  critBkgColor:'#f59e0b',       critBorderColor:'#b45309',        // slipped
+  excludeBkgColor:'#eef2f7',    todayLineColor:'#d33'
+}
+const TAG = { 'in progress':'', 'upcoming':'active', 'closed':'done', 'slipped':'crit' }
+
 function toGantt(rows) {
   const lines = [
-    '%%{init: {"themeVariables": {"critBkgColor":"#f59e0b","critBorderColor":"#b45309","excludeBkgColor":"#eef2f7"}}}%%',
+    '%%{init: {"themeVariables": ' + JSON.stringify(THEME) + '}}%%',
     'gantt',
-    '    title Open milestones',
+    '    title Releases',
     '    dateFormat YYYY-MM-DD',
     '    axisFormat %-d %b',
     '    tickInterval 1week',
@@ -189,38 +232,83 @@ function toGantt(rows) {
   let section = null
   for (const r of rows) {
     if (r.end !== section) { section = r.end; lines.push('    section ' + pretty(r.end)) }
+    const tag = TAG[r.state]
     const span = r.start >= r.end ? r.end + ', 1d' : r.start + ', ' + r.end
-    lines.push('    ' + r.name + ' ' + r.closed + '/' + r.total + ' :' + (r.late ? 'crit, ' : '') + span)
+    lines.push('    ' + r.name + ' ' + r.done + '/' + r.total + ' :' + (tag ? tag + ', ' : '') + span)
   }
   return lines.join('\n')
 }
 
-function typePills(types) {
-  const order = TYPES.filter(t => types[t]).concat(Object.keys(types).filter(t => !TYPES.includes(t)))
-  return order.map(t =>
-    '<span class="pill ' + (TYPES.includes(t) ? t : 'none') + '">' + t + ' ' + types[t] + '</span>').join('')
+/* ---- ratio bars ---- */
+function ratioBar(parts, total) {
+  if (!total) return '<span class="muted">-</span>'
+  const segs = parts.map(p => {
+    const pct = (p.n / total * 100)
+    const style = 'width:' + pct.toFixed(2) + '%;background-color:' + p.color
+      + (p.avatar ? ";background-image:url('" + p.avatar + "&s=32')" : '')
+    return '<span class="seg" style="' + style + '"'
+      + ' data-tip="' + esc(p.label) + '" data-n="' + p.n + '"'
+      + ' data-pct="' + Math.round(pct) + '"'
+      + (p.avatar ? ' data-avatar="' + esc(p.avatar) + '&s=32"' : '') + '></span>'
+  }).join('')
+  return '<span class="ratio">' + segs + '</span>'
 }
+const typeBar = r => ratioBar(
+  Object.entries(r.types).sort((a,b) => b[1] - a[1])
+    .map(([t, n]) => ({ label:t, n, color:TYPE_COLOR[t] || '#8b949e' })), r.total)
+const whoBar = r => ratioBar(
+  r.who.map(w => ({ label:w.login, n:w.n, color:'#e6e9ee', avatar:w.avatar })),
+  r.who.reduce((s, w) => s + w.n, 0))
 
-function avatars(who) {
-  if (!who.size) return '<span class="muted">-</span>'
-  return [...who].map(([login, url]) =>
-    '<img src="' + url + '&s=40" title="' + login + '" alt="' + login + '">').join('')
-}
+/* ---- table ---- */
+const COLS = [
+  { k:'name',  h:'Release',  cell:r => '<a class="rel" target="_blank" rel="noopener" href="'
+      + PROJECT_SLICE + encodeURIComponent(r.title) + '">' + esc(r.name) + '</a>',
+    val:r => r.name.toLowerCase() },
+  { k:'state', h:'State',    cell:r => esc(r.state), val:r => r.state },
+  { k:'done',  h:'Done',     cell:r => r.done + ' / ' + r.total,
+    val:r => r.total ? r.done / r.total : -1 },
+  { k:'types', h:'Card mix', cell:typeBar, val:r => r.total },
+  { k:'who',   h:'Who',      cell:whoBar,  val:r => r.who.length },
+  { k:'start', h:'Started',  cell:r => pretty(r.start) + (r.firstMove ? '' : ' <span class="muted">(none moved)</span>'),
+    val:r => r.start },
+  { k:'due',   h:'Due',      cell:r => pretty(r.due), val:r => r.due },
+  { k:'last',  h:'Last Done',cell:r => r.lastDone ? pretty(r.lastDone) : '-', val:r => r.lastDone || '' }
+]
+let rowsCache = [], sortKey = 'due', sortDir = 1
 
-function toTable(rows) {
-  const head = '<tr><th>Release</th><th>Done</th><th>Cards</th><th>Who</th>'
-             + '<th>Started</th><th>Due</th><th>Last Done</th></tr>'
-  const body = rows.map(r => '<tr>'
-    + '<td' + (r.late ? ' class="late"' : '') + '>' + r.name + '</td>'
-    + '<td>' + r.closed + ' / ' + r.total + '</td>'
-    + '<td>' + typePills(r.types) + '</td>'
-    + '<td class="who">' + avatars(r.who) + '</td>'
-    + '<td>' + pretty(r.start) + (r.firstMove ? '' : ' <span class="muted">(none moved)</span>') + '</td>'
-    + '<td>' + pretty(r.due) + '</td>'
-    + '<td' + (r.late ? ' class="late"' : '') + '>' + (r.lastDone ? pretty(r.lastDone) : '-') + '</td>'
+function drawTable() {
+  const col = COLS.find(c => c.k === sortKey)
+  const sorted = [...rowsCache].sort((a, b) => {
+    const x = col.val(a), y = col.val(b)
+    return (x < y ? -1 : x > y ? 1 : 0) * sortDir
+  })
+  const head = '<tr>' + COLS.map(c =>
+    '<th data-k="' + c.k + '" class="' + (c.k === sortKey ? 'sorted' : '') + '">' + c.h
+    + ' <span class="arrow">' + (c.k === sortKey ? (sortDir > 0 ? '&#9650;' : '&#9660;') : '&#9670;')
+    + '</span></th>').join('') + '</tr>'
+  const body = sorted.map(r => '<tr class="' + (r.state === 'closed' ? 'closed' : '') + '">'
+    + COLS.map(c => '<td' + (c.k === 'last' && r.late ? ' class="late"' : '') + '>' + c.cell(r) + '</td>').join('')
     + '</tr>').join('')
-  return head + body
+  $('table').innerHTML = head + body
+  $('table').querySelectorAll('th').forEach(th => th.onclick = () => {
+    const k = th.dataset.k
+    if (k === sortKey) sortDir = -sortDir; else { sortKey = k; sortDir = 1 }
+    drawTable()
+  })
 }
+
+/* ---- tooltip on the ratio bars ---- */
+const tip = $('tip')
+document.addEventListener('mousemove', e => {
+  const seg = e.target.closest && e.target.closest('.seg')
+  if (!seg) { tip.style.display = 'none'; return }
+  tip.innerHTML = (seg.dataset.avatar ? '<img src="' + seg.dataset.avatar + '">' : '')
+    + '<b>' + esc(seg.dataset.tip) + '</b> &middot; ' + seg.dataset.n + ' cards &middot; ' + seg.dataset.pct + '%'
+  tip.style.display = 'block'
+  tip.style.left = Math.min(e.clientX + 14, innerWidth - tip.offsetWidth - 8) + 'px'
+  tip.style.top = (e.clientY + 16) + 'px'
+})
 
 /* ---- zoom and pan ---- */
 const view = $('viewport'), pan = $('pan')
@@ -231,29 +319,38 @@ function apply() {
   $('zoomLabel').textContent = Math.round(scale * 100) + '%'
 }
 function zoomAt(factor, cx, cy) {
-  const next = Math.min(4, Math.max(0.2, scale * factor))
+  const next = Math.min(4, Math.max(0.15, scale * factor))
   const k = next / scale
-  tx = cx - (cx - tx) * k
-  ty = cy - (cy - ty) * k
-  scale = next
+  tx = cx - (cx - tx) * k; ty = cy - (cy - ty) * k; scale = next
   apply()
 }
-function fit() {
-  const svg = pan.querySelector('svg')
-  scale = 1; tx = 0; ty = 0
-  if (svg) {
-    const w = svg.getBoundingClientRect().width / scale
-    if (w > 0) scale = Math.min(1, (view.clientWidth - 24) / w)
-    tx = 12; ty = 12
-  }
-  apply()
+function fitAll() {
+  const svg = pan.querySelector('svg'); if (!svg) return
+  const w = svg.getBoundingClientRect().width / scale
+  const h = svg.getBoundingClientRect().height / scale
+  scale = Math.min((view.clientWidth - 24) / w, (view.clientHeight - 24) / h, 1)
+  tx = 12; ty = 12; apply()
+}
+// keep the timeline at a readable size and put today in the middle
+function backToToday() {
+  const svg = pan.querySelector('svg'); if (!svg) return
+  scale = 1
+  const line = svg.querySelector('.today')
+  const x = line ? (line.getBoundingClientRect().left - svg.getBoundingClientRect().left) / (scale || 1) : 0
+  tx = x ? (view.clientWidth / 2 - x) : 12
+  ty = 12; apply()
 }
 
 view.addEventListener('wheel', e => {
   e.preventDefault()
   const r = view.getBoundingClientRect()
   if (e.ctrlKey || e.metaKey) zoomAt(e.deltaY < 0 ? 1.12 : 1 / 1.12, e.clientX - r.left, e.clientY - r.top)
-  else { tx -= e.deltaX; ty -= e.deltaY; apply() }
+  else {
+    // a plain trackpad swipe or a shift+wheel both move along the timeline
+    tx -= (e.shiftKey && !e.deltaX) ? e.deltaY : e.deltaX
+    if (!e.shiftKey) ty -= e.deltaY
+    apply()
+  }
 }, { passive:false })
 
 let dragging = false, lastX = 0, lastY = 0
@@ -266,13 +363,14 @@ view.addEventListener('pointermove', e => {
   tx += e.clientX - lastX; ty += e.clientY - lastY
   lastX = e.clientX; lastY = e.clientY; apply()
 })
-const stop = e => { dragging = false; view.classList.remove('dragging') }
-view.addEventListener('pointerup', stop)
-view.addEventListener('pointercancel', stop)
+const stopDrag = () => { dragging = false; view.classList.remove('dragging') }
+view.addEventListener('pointerup', stopDrag)
+view.addEventListener('pointercancel', stopDrag)
 
 $('zoomIn').onclick  = () => zoomAt(1.25, view.clientWidth / 2, view.clientHeight / 2)
 $('zoomOut').onclick = () => zoomAt(1 / 1.25, view.clientWidth / 2, view.clientHeight / 2)
-$('fit').onclick = fit
+$('today').onclick = backToToday
+$('fitAll').onclick = fitAll
 
 /* ---- load ---- */
 async function load() {
@@ -280,18 +378,18 @@ async function load() {
   $('gate').style.display = 'none'
   try {
     const all = (await Promise.all(REPOS.map(fetchRepo))).flat()
-    const rows = merge(all)
-    const { svg } = await mermaid.render('gantt-' + Date.now(), toGantt(rows))
+    rowsCache = merge(all)
+    const { svg } = await mermaid.render('gantt-' + Date.now(), toGantt(rowsCache))
     pan.innerHTML = svg
-    fit()
-    $('table').innerHTML = toTable(rows)
-    const late = rows.filter(r => r.late).length
-    const people = new Set(rows.flatMap(r => [...r.who.keys()])).size
+    backToToday()
+    drawTable()
+    const n = s => rowsCache.filter(r => r.state === s).length
+    const people = new Set(rowsCache.flatMap(r => r.who.map(w => w.login))).size
     $('stamp').textContent = 'updated ' + new Date().toLocaleTimeString()
-      + ' · ' + rows.length + ' open releases · ' + people + ' people'
-      + (late ? ' · ' + late + ' slipped' : '')
+      + ' · ' + rowsCache.length + ' releases · ' + people + ' people'
+      + (n('slipped') ? ' · ' + n('slipped') + ' slipped' : '')
   } catch (e) {
-    pan.innerHTML = '<p class="err" style="padding:16px">' + e.message + '</p>'
+    pan.innerHTML = '<p class="err" style="padding:16px">' + esc(e.message) + '</p>'
     if (/rejected|access/i.test(e.message)) { $('gate').style.display = 'block'; $('gateErr').textContent = e.message }
   }
 }
