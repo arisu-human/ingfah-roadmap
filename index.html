@@ -54,6 +54,7 @@
   .vis-tooltip img { width:16px; height:16px; border-radius:50%; vertical-align:-3px; margin-right:4px; }
 
   /* ---- table ---- */
+  #tableBox { max-height:calc(100vh - 180px); overflow:auto; }
   table { border-collapse:collapse; width:100%; font-size:13px; }
   th, td { text-align:left; padding:7px 10px; border-bottom:1px solid var(--line); white-space:nowrap;
            vertical-align:middle; }
@@ -83,9 +84,9 @@
   .pbar i.time  { background:#8c959f }
   .pbar i.time.behind { background:#f59e0b }
 
-  #datetip { position:fixed; z-index:8; display:none; pointer-events:none; background:#0969da;
-             color:#fff; font-size:11px; font-weight:600; padding:2px 8px; border-radius:4px;
-             white-space:nowrap; box-shadow:0 1px 4px rgba(0,0,0,.25); }
+  .vis-custom-time.cursor { background:#0969da; width:2px; }
+  .vis-custom-time.cursor > .vis-custom-time-marker { background:#0969da; color:#fff; font-size:11px;
+             font-weight:600; padding:2px 7px; border-radius:4px; top:2px; }
   #tip { position:fixed; z-index:9; display:none; pointer-events:none; background:#1f2328; color:#fff;
          font-size:12px; padding:6px 10px; border-radius:6px; white-space:nowrap; line-height:1.5;
          box-shadow:0 2px 8px rgba(0,0,0,.25); }
@@ -122,6 +123,7 @@
     <span class="key"><i style="background:#3b82f6"></i>in progress</span>
     <span class="key"><i style="background:#f59e0b"></i>slipped</span>
     <span class="key"><i style="background:#d1d5db"></i>closed</span>
+    <span class="key" id="dateNow" style="font-weight:600;color:#0969da"></span>
     <span class="sep"></span>
     <span class="muted" id="windowLabel"></span>
     <button id="older">Show older</button>
@@ -134,10 +136,10 @@
 <div class="card">
   <p style="margin:0 0 10px"><input id="search" type="search" placeholder="Search milestone..." style="width:280px">
      <span class="muted" id="searchCount"></span></p>
-  <table id="table"></table>
+  <div id="tableBox"><table id="table"></table></div>
 </div>
 <div id="tip"></div>
-<div id="datetip"></div>
+
 
 <script src="https://cdn.jsdelivr.net/npm/vis-timeline@7.7.3/standalone/umd/vis-timeline-graph2d.min.js"></script>
 <script type="module">
@@ -236,11 +238,13 @@ function build(all) {
     if (day(m.dueOn) < row.due) row.due = day(m.dueOn)
     if (day(m.createdAt) < row.born) row.born = day(m.createdAt)
     if (!m.isClosed) row.closed = false        // open anywhere means the release is still open
-    row.issues.push(...m.issues.nodes)
+    // an Epic is a container, not a card: it would add a phantom release with no real work
+    row.issues.push(...m.issues.nodes.filter(i => !i.issueType || i.issueType.name !== 'Epic'))
   }
 
   const out = []
   for (const row of by.values()) {
+    if (!row.issues.length) continue          // nothing left after Epics were removed
     const events = row.issues.flatMap(i => i.timelineItems.nodes)
 
     // Start of work = the first time any card LEFT "To Do", whatever it went to.
@@ -381,20 +385,28 @@ function drawTimeline(rows) {
       const it = sel.length && items.get(sel[0])
       if (it && it.url) window.open(it.url, '_blank', 'noopener')
     })
-    // read out the date the pointer is over, pinned to the top of the chart
-    $('tl').addEventListener('mousemove', e => {
-      const when = timeline.getEventProperties(e).time
-      if (!when) { $('datetip').style.display = 'none'; return }
-      const dt = $('datetip')
-      dt.textContent = when.toLocaleDateString('en-GB',
-        { weekday:'short', day:'numeric', month:'short', year:'numeric' })
-      dt.style.display = 'block'
-      const box = $('tl').getBoundingClientRect()
-      dt.style.left = Math.min(Math.max(e.clientX - 60, box.left + 4),
-                               box.right - dt.offsetWidth - 4) + 'px'
-      dt.style.top = (box.top + 4) + 'px'
+    // a vertical line that follows the pointer with the date written on it
+    timeline.addCustomTime(new Date(), 'cursor')
+    timeline.on('mouseMove', props => {
+      if (!props.time) return
+      timeline.setCustomTime(props.time, 'cursor')
+      timeline.setCustomTimeMarker(props.time.toLocaleDateString('en-GB',
+        { weekday:'short', day:'numeric', month:'short' }), 'cursor', false)
+      $('dateNow').textContent = props.time.toLocaleDateString('en-GB',
+        { weekday:'long', day:'numeric', month:'long', year:'numeric' })
     })
-    $('tl').addEventListener('mouseleave', () => $('datetip').style.display = 'none')
+
+    // sideways scroll: a trackpad swipe or shift+wheel moves along the timeline
+    $('tl').addEventListener('wheel', e => {
+      if (e.ctrlKey || e.metaKey) return                     // leave zoom to vis
+      const dx = Math.abs(e.deltaX) > Math.abs(e.deltaY) ? e.deltaX
+               : e.shiftKey ? e.deltaY : 0
+      if (!dx) return                                        // plain up/down scrolls the rows
+      e.preventDefault(); e.stopPropagation()
+      const w = timeline.getWindow()
+      const step = (w.end - w.start) * (dx / $('tl').clientWidth)
+      timeline.setWindow(new Date(+w.start + step), new Date(+w.end + step), { animation:false })
+    }, { passive:false, capture:true })
   } else {
     items.clear(); items.add(data)
     groups.clear(); groups.add(groupData)
