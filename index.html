@@ -37,6 +37,13 @@
   .vis-item.st-running  { background:var(--running); border-color:#1d4ed8; color:#fff; }
   .vis-item.st-slipped  { background:var(--slipped); border-color:#b45309; }
   .vis-item.st-closed   { background:var(--closed); border-color:#9ca3af; color:#57606a; }
+  .vis-panel.vis-left { width:250px; }
+  .vis-labelset .vis-label { padding:0 10px; display:flex; align-items:center;
+                             border-bottom:1px solid #eef1f4; font-size:12px; }
+  .vis-labelset .vis-label .vis-inner { width:100%; overflow:hidden; text-overflow:ellipsis;
+                                        white-space:nowrap; }
+  .vis-labelset .vis-label.g-closed { color:#8c959f; }
+  .vis-foreground .vis-group { border-bottom:1px solid #eef1f4; }
   .vis-item.vis-background.off { background:rgba(140,149,159,.13); }
   .vis-item.vis-background.holiday { background:rgba(207,34,46,.10); }
   .vis-current-time { background:#d33; width:2px; }
@@ -76,6 +83,9 @@
   .pbar i.time  { background:#8c959f }
   .pbar i.time.behind { background:#f59e0b }
 
+  #datetip { position:fixed; z-index:8; display:none; pointer-events:none; background:#0969da;
+             color:#fff; font-size:11px; font-weight:600; padding:2px 8px; border-radius:4px;
+             white-space:nowrap; box-shadow:0 1px 4px rgba(0,0,0,.25); }
   #tip { position:fixed; z-index:9; display:none; pointer-events:none; background:#1f2328; color:#fff;
          font-size:12px; padding:6px 10px; border-radius:6px; white-space:nowrap; line-height:1.5;
          box-shadow:0 2px 8px rgba(0,0,0,.25); }
@@ -106,7 +116,8 @@
     <button id="zoomOut">&minus;</button>
     <button id="zoomIn">+</button>
     <button id="today">Back to today</button>
-    <button id="fit">Fit all</button>
+    <button id="fit">Today &rarr; end</button>
+    <button id="fitAllTime">Fit everything</button>
     <span class="key"><i style="background:#5eead4"></i>upcoming</span>
     <span class="key"><i style="background:#3b82f6"></i>in progress</span>
     <span class="key"><i style="background:#f59e0b"></i>slipped</span>
@@ -120,8 +131,13 @@
   <div id="tl">Loading...</div>
 </div>
 
-<div class="card"><table id="table"></table></div>
+<div class="card">
+  <p style="margin:0 0 10px"><input id="search" type="search" placeholder="Search milestone..." style="width:280px">
+     <span class="muted" id="searchCount"></span></p>
+  <table id="table"></table>
+</div>
 <div id="tip"></div>
+<div id="datetip"></div>
 
 <script src="https://cdn.jsdelivr.net/npm/vis-timeline@7.7.3/standalone/umd/vis-timeline-graph2d.min.js"></script>
 <script type="module">
@@ -183,6 +199,7 @@ const day = s => s ? s.slice(0,10) : null
 const token = () => localStorage.getItem('ghToken') || ''
 const esc = s => String(s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]))
 const pct = (a, b) => b > 0 ? Math.max(0, Math.min(100, a / b * 100)) : 0
+const TOMORROW = new Date(Date.now() + 864e5).toISOString().slice(0,10)
 const pretty = s => new Date(s + 'T00:00:00Z')
   .toLocaleDateString('en-GB', { day:'numeric', month:'short', timeZone:'UTC' })
 
@@ -254,16 +271,22 @@ function build(all) {
       }
     }
 
-    const start = startedAt || row.born
+    // Nothing has left To Do yet, so the work has not begun: draw it as starting tomorrow.
+    // Old closed releases predate the board and have no history at all, so those keep the day
+    // the milestone was made, otherwise they would draw backwards from tomorrow into last year.
+    const start = startedAt || (row.closed ? row.born : TOMORROW)
+    const endDate = late ? lastDone : row.due
     const span = (new Date(row.due) - new Date(start)) / 864e5
     const gone = (new Date(today) - new Date(start)) / 864e5
     const all2 = [...people.values()].sort((a,b) => b.n - a.n)
 
     out.push({
       title: row.title, name: cleanTitle(row.title),
-      due: row.due, start, end: late ? lastDone : row.due,
+      due: row.due, start, end: endDate,
       startedAt, lastDone, late, born: row.born,
       state: row.closed ? 'closed' : late ? 'slipped' : startedAt ? 'running' : 'upcoming',
+      barStart: start < endDate ? start : endDate,
+      barEnd:   start < endDate ? endDate : start,
       total: row.issues.length, done, ready, types,
       devs: all2.filter(p => !p.qa), qas: all2.filter(p => p.qa),
       cardPct: pct(done + ready, row.issues.length),
@@ -313,43 +336,80 @@ function shading(from, to) {
   return bg
 }
 
+const plus = (d, n) => { const x = new Date(d + 'T00:00:00Z'); x.setUTCDate(x.getUTCDate() + n)
+                         return x.toISOString().slice(0,10) }
+let groups = null, firstDraw = true
+
 function drawTimeline(rows) {
   const shown = rows.filter(inWindow)
   if (!shown.length) { $('tl').textContent = 'Nothing to show.'; return }
-  const lo = shown.reduce((m, r) => r.start < m ? r.start : m, shown[0].start)
-  const hi = shown.reduce((m, r) => r.end > m ? r.end : m, shown[0].end)
-  const plus = (d, n) => { const x = new Date(d + 'T00:00:00Z'); x.setUTCDate(x.getUTCDate() + n)
-                           return x.toISOString().slice(0,10) }
+  const lo = shown.reduce((m, r) => r.barStart < m ? r.barStart : m, shown[0].barStart)
+  const hi = shown.reduce((m, r) => r.barEnd > m ? r.barEnd : m, shown[0].barEnd)
 
+  // one group per release, so every release keeps a row of its own
+  const groupData = shown.map((r, i) => ({
+    id: i, order: i, className: 'g-' + r.state,
+    content: esc(r.name) + '<span class="cnt">' + r.done + '/' + r.total + '</span>'
+  }))
   const data = shown.map((r, i) => ({
-    id: i,
-    content: esc(r.name) + '<span class="cnt">' + r.done + '/' + r.total + '</span>',
-    start: r.start,
-    end: r.end > r.start ? r.end : plus(r.start, 1),   // never a zero-width bar
+    id: i, group: i,
+    content: '<span class="cnt">' + r.done + '/' + r.total + '</span>',
+    start: r.barStart,
+    end: r.barEnd > r.barStart ? r.barEnd : plus(r.barStart, 1),   // never a zero-width bar
     className: 'st-' + r.state,
     title: itemTooltip(r),
     url: PROJECT_SLICE + encodeURIComponent(r.title)
-  })).concat(shading(lo, plus(hi, 14)))
+  })).concat(shading(lo, plus(hi, 14)))   // background bands carry no group, so they span every row
 
   if (!timeline) {
     items = new vis.DataSet(data)
-    timeline = new vis.Timeline($('tl'), items, {
-      stack: true, stackSubgroups: true,
-      horizontalScroll: true, verticalScroll: false,
-      zoomKey: 'ctrlKey', zoomMin: 3 * 864e5, zoomMax: 400 * 864e5,
+    groups = new vis.DataSet(groupData)
+    timeline = new vis.Timeline($('tl'), items, groups, {
+      stack: false,
+      horizontalScroll: false, verticalScroll: true,
+      zoomKey: 'ctrlKey', zoomMin: 3 * 864e5, zoomMax: 800 * 864e5,
       moveable: true, selectable: true, orientation: { axis:'top' },
-      margin: { item: { horizontal: 0, vertical: 6 }, axis: 8 },
+      margin: { item: { horizontal: 0, vertical: 5 }, axis: 6 },
       tooltip: { followMouse: true, overflowMethod: 'cap' },
-      showCurrentTime: true, maxHeight: '70vh'
+      showCurrentTime: true, maxHeight: '72vh', groupOrder: 'order',
+      format: {
+        minorLabels: { day:'D', weekday:'D', week:'D', month:'MMM' },
+        majorLabels: { day:'MMMM YYYY', weekday:'MMMM YYYY', week:'MMMM YYYY', month:'YYYY' }
+      }
     })
     timeline.on('select', ({ items: sel }) => {
       const it = sel.length && items.get(sel[0])
       if (it && it.url) window.open(it.url, '_blank', 'noopener')
     })
+    // read out the date the pointer is over, pinned to the top of the chart
+    $('tl').addEventListener('mousemove', e => {
+      const when = timeline.getEventProperties(e).time
+      if (!when) { $('datetip').style.display = 'none'; return }
+      const dt = $('datetip')
+      dt.textContent = when.toLocaleDateString('en-GB',
+        { weekday:'short', day:'numeric', month:'short', year:'numeric' })
+      dt.style.display = 'block'
+      const box = $('tl').getBoundingClientRect()
+      dt.style.left = Math.min(Math.max(e.clientX - 60, box.left + 4),
+                               box.right - dt.offsetWidth - 4) + 'px'
+      dt.style.top = (box.top + 4) + 'px'
+    })
+    $('tl').addEventListener('mouseleave', () => $('datetip').style.display = 'none')
   } else {
     items.clear(); items.add(data)
+    groups.clear(); groups.add(groupData)
   }
-  $('windowLabel').textContent = 'closed releases: last ' + windowDays + ' days'
+  // open on the whole road ahead: a week before today, out to the last future release
+  if (firstDraw) { firstDraw = false; showFuture(shown) }
+  $('windowLabel').textContent = 'past: last ' + windowDays + ' days · future: all'
+}
+
+function showFuture(shown) {
+  const rows = shown || rowsCache.filter(inWindow)
+  if (!timeline || !rows.length) return
+  const today = new Date().toISOString().slice(0,10)
+  const hi = rows.reduce((m, r) => r.barEnd > m ? r.barEnd : m, today)
+  timeline.setWindow(plus(today, -7), plus(hi, 7), { animation:false })
 }
 
 /* ---- mermaid export, kept for pasting into a GitHub issue ---- */
@@ -424,7 +484,7 @@ function progressCell(r) {
 
 /* ---- table ---- */
 const COLS = [
-  { k:'name',  h:'Release', cell:r => '<a class="rel" target="_blank" rel="noopener" href="'
+  { k:'name',  h:'Milestone', cell:r => '<a class="rel" target="_blank" rel="noopener" href="'
       + PROJECT_SLICE + encodeURIComponent(r.title) + '">' + esc(r.name) + '</a>',
     val:r => r.name.toLowerCase() },
   { k:'state', h:'State',    cell:r => STATE_LABEL[r.state], val:r => r.state },
@@ -441,7 +501,10 @@ let rowsCache = [], sortKey = 'due', sortDir = 1
 
 function drawTable() {
   const col = COLS.find(c => c.k === sortKey)
-  const sorted = rowsCache.filter(inWindow).sort((a, b) => {
+  const q = ($('search').value || '').trim().toLowerCase()
+  const kept = rowsCache.filter(inWindow).filter(r => !q || r.name.toLowerCase().includes(q))
+  $('searchCount').textContent = q ? kept.length + ' of ' + rowsCache.filter(inWindow).length : ''
+  const sorted = kept.sort((a, b) => {
     const x = col.val(a), y = col.val(b)
     return (x < y ? -1 : x > y ? 1 : 0) * sortDir
   })
@@ -475,7 +538,8 @@ document.addEventListener('mousemove', e => {
 $('zoomIn').onclick  = () => timeline && timeline.zoomIn(0.4)
 $('zoomOut').onclick = () => timeline && timeline.zoomOut(0.4)
 $('today').onclick   = () => timeline && timeline.moveTo(new Date())
-$('fit').onclick     = () => timeline && timeline.fit()
+$('fit').onclick     = () => showFuture()
+$('fitAllTime').onclick = () => timeline && timeline.fit()
 $('older').onclick = () => {
   windowDays = windowDays >= 3650 ? 30 : windowDays * 3
   drawTimeline(rowsCache); drawTable()
@@ -516,6 +580,7 @@ async function load() {
 
 $('save').onclick = () => { localStorage.setItem('ghToken', $('token').value.trim()); $('token').value = ''; load() }
 $('token').onkeydown = e => { if (e.key === 'Enter') $('save').click() }
+$('search').oninput = drawTable
 $('refresh').onclick = load
 $('forget').onclick = () => { localStorage.removeItem('ghToken'); location.reload() }
 setInterval(load, REFRESH_MS)
