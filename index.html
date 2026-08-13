@@ -4,8 +4,10 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>ingfah release roadmap</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/vis-timeline@7.7.3/styles/vis-timeline-graph2d.min.css">
 <style>
-  :root { --bg:#f6f8fa; --card:#fff; --line:#d0d7de; --muted:#57606a; --late:#b45309; }
+  :root { --bg:#f6f8fa; --card:#fff; --line:#d0d7de; --muted:#57606a; --late:#b45309;
+          --upcoming:#5eead4; --running:#3b82f6; --slipped:#f59e0b; --closed:#d1d5db; }
   * { box-sizing:border-box; }
   body { margin:0; padding:24px; background:var(--bg); color:#1f2328;
          font:14px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif; }
@@ -23,13 +25,28 @@
   input { font:inherit; padding:6px 8px; border:1px solid var(--line); border-radius:6px; width:340px; }
   .key { display:inline-flex; align-items:center; gap:5px; font-size:12px; color:var(--muted); }
   .key i { width:11px; height:11px; border-radius:3px; display:inline-block; }
+  .sep { flex:1 }
 
-  /* the chart pans sideways only; the page itself scrolls up and down */
-  #viewport { overflow:hidden; cursor:grab; background:#fff; touch-action:pan-y; }
-  #viewport.dragging { cursor:grabbing; }
-  #pan { transform-origin:0 0; will-change:transform; }
-  #pan svg { max-width:none !important; display:block; }
+  /* ---- timeline ---- */
+  #tl { border:0; }
+  .vis-timeline { border:0; font-family:inherit; font-size:12px; }
+  .vis-item { border-width:1px; border-radius:5px; color:#0b1220; }
+  .vis-item.vis-selected { box-shadow:0 0 0 2px #0969da; }
+  .vis-item .vis-item-content { padding:3px 8px; }
+  .vis-item.st-upcoming { background:var(--upcoming); border-color:#0d9488; }
+  .vis-item.st-running  { background:var(--running); border-color:#1d4ed8; color:#fff; }
+  .vis-item.st-slipped  { background:var(--slipped); border-color:#b45309; }
+  .vis-item.st-closed   { background:var(--closed); border-color:#9ca3af; color:#57606a; }
+  .vis-item.vis-background.off { background:rgba(140,149,159,.13); }
+  .vis-item.vis-background.holiday { background:rgba(207,34,46,.10); }
+  .vis-current-time { background:#d33; width:2px; }
+  .cnt { opacity:.75; font-size:11px; margin-left:5px; }
+  .vis-tooltip { font-family:inherit !important; font-size:12px !important; background:#1f2328 !important;
+                 color:#fff !important; border:0 !important; border-radius:6px !important;
+                 padding:7px 10px !important; box-shadow:0 2px 10px rgba(0,0,0,.3) !important; }
+  .vis-tooltip img { width:16px; height:16px; border-radius:50%; vertical-align:-3px; margin-right:4px; }
 
+  /* ---- table ---- */
   table { border-collapse:collapse; width:100%; font-size:13px; }
   th, td { text-align:left; padding:7px 10px; border-bottom:1px solid var(--line); white-space:nowrap;
            vertical-align:middle; }
@@ -43,15 +60,12 @@
   a.rel { color:inherit; text-decoration:none; border-bottom:1px dotted var(--line); }
   a.rel:hover { color:#0969da; border-bottom-color:#0969da; }
 
-  /* ratio bars */
   .ratio { display:flex; width:170px; height:20px; border-radius:10px; overflow:hidden;
            border:1px solid var(--line); background:#f0f2f5; }
   .ratio .seg { height:100%; display:flex; align-items:center; justify-content:center;
                 overflow:hidden; min-width:3px; }
   .ratio .face { width:16px; height:16px; border-radius:50%; display:block;
                  border:1.5px solid rgba(255,255,255,.9); flex:0 0 auto; }
-
-  /* progress: cards on top, time underneath */
   .prog { width:150px; }
   .pbar { display:flex; height:9px; border-radius:5px; overflow:hidden; background:#eaeef2;
           border:1px solid var(--line); }
@@ -91,33 +105,35 @@
   <div class="bar">
     <button id="zoomOut">&minus;</button>
     <button id="zoomIn">+</button>
-    <span class="muted" id="zoomLabel">100%</span>
     <button id="today">Back to today</button>
-    <button id="fitAll">Fit width</button>
+    <button id="fit">Fit all</button>
     <span class="key"><i style="background:#5eead4"></i>upcoming</span>
     <span class="key"><i style="background:#3b82f6"></i>in progress</span>
     <span class="key"><i style="background:#f59e0b"></i>slipped</span>
     <span class="key"><i style="background:#d1d5db"></i>closed</span>
-    <span class="muted">drag sideways &middot; ctrl or &#8984; + scroll to zoom</span>
+    <span class="sep"></span>
+    <span class="muted" id="windowLabel"></span>
+    <button id="older">Show older</button>
+    <button id="mmdCopy">Copy Mermaid</button>
+    <button id="mmdSave">Download .mmd</button>
   </div>
-  <div id="viewport"><div id="pan">Loading...</div></div>
+  <div id="tl">Loading...</div>
 </div>
 
 <div class="card"><table id="table"></table></div>
 <div id="tip"></div>
 
+<script src="https://cdn.jsdelivr.net/npm/vis-timeline@7.7.3/standalone/umd/vis-timeline-graph2d.min.js"></script>
 <script type="module">
-import mermaid from 'https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs'
-mermaid.initialize({ startOnLoad:false, securityLevel:'loose' })
-
 const OWNER = '100x-fi'
 const REPOS = ['zai-backend','zai-frontend','zai-bo-frontend','ingfah-rag','ingfah-dev-docs','zai-docs']
 const PROJECT_SLICE = 'https://github.com/orgs/100x-fi/projects/6/views/5?sliceBy%5Bvalue%5D='
 const REFRESH_MS = 15 * 60 * 1000
-const CLOSED_WINDOW_DAYS = 45          // how far back closed releases stay on the chart
 const QA = new Set(['kat100xfi','subzero-ice','viviintern-eng'])
+const STATUS_TODO = 'To Do'
 const STATUS_READY = 'Ready for Test'
 const STATUS_DONE  = 'Done'
+const WORKING = new Set(['In Progress','Review (Dev tested carefully)','Review', STATUS_READY, STATUS_DONE])
 
 // same colours as the Type field on the board
 const TYPE_COLOR = { Story:'#2da44e', Task:'#1f6feb', Bug:'#cf222e', Defect:'#e16f24',
@@ -125,11 +141,13 @@ const TYPE_COLOR = { Story:'#2da44e', Task:'#1f6feb', Bug:'#cf222e', Defect:'#e1
 
 // Thai public holidays. The lunar ones (Makha, Visakha, Asarnha, Khao Phansa) move every year,
 // so check them against the Bank of Thailand calendar before rolling this list forward.
-const HOLIDAYS = [
+const HOLIDAYS = new Set([
   '2026-01-01','2026-03-03','2026-04-06','2026-04-13','2026-04-14','2026-04-15',
   '2026-05-01','2026-05-04','2026-06-01','2026-06-03','2026-07-28','2026-07-29',
   '2026-07-30','2026-08-12','2026-10-13','2026-10-23','2026-12-07','2026-12-10','2026-12-31'
-]
+])
+
+let windowDays = 30        // how far back closed releases are shown; the Show older button grows it
 
 const MS_FIELDS = `
   title dueOn createdAt
@@ -138,17 +156,25 @@ const MS_FIELDS = `
       state
       issueType{ name }
       assignees(first:5){ nodes{ login avatarUrl } }
-      timelineItems(first:50, itemTypes:[PROJECT_V2_ITEM_STATUS_CHANGED_EVENT]){
+      timelineItems(first:40, itemTypes:[PROJECT_V2_ITEM_STATUS_CHANGED_EVENT]){
         nodes{ ... on ProjectV2ItemStatusChangedEvent { createdAt previousStatus status } }
       }
     }
   }`
 
-const QUERY = `
+// Open and closed are fetched separately on purpose: asking for both in one query goes over
+// GitHub's resource limit and the whole request fails. Every milestone that could ever be shown
+// is fetched, so "Show older" never refetches and a release always keeps its real start date.
+const Q_OPEN = `
 query($owner:String!,$name:String!){
   repository(owner:$owner,name:$name){
-    open: milestones(first:50, states:OPEN){ nodes{ ${MS_FIELDS} } }
-    recent: milestones(first:15, states:CLOSED, orderBy:{field:DUE_DATE, direction:DESC}){ nodes{ ${MS_FIELDS} } }
+    milestones(first:40, states:OPEN){ nodes{ ${MS_FIELDS} } }
+  }
+}`
+const Q_CLOSED = `
+query($owner:String!,$name:String!){
+  repository(owner:$owner,name:$name){
+    milestones(first:40, states:CLOSED, orderBy:{field:DUE_DATE, direction:DESC}){ nodes{ ${MS_FIELDS} } }
   }
 }`
 
@@ -157,31 +183,36 @@ const day = s => s ? s.slice(0,10) : null
 const token = () => localStorage.getItem('ghToken') || ''
 const esc = s => String(s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]))
 const pct = (a, b) => b > 0 ? Math.max(0, Math.min(100, a / b * 100)) : 0
+const pretty = s => new Date(s + 'T00:00:00Z')
+  .toLocaleDateString('en-GB', { day:'numeric', month:'short', timeZone:'UTC' })
 
-async function fetchRepo(name) {
+async function ask(query, name) {
   const res = await fetch('https://api.github.com/graphql', {
     method:'POST',
     headers:{ 'Authorization':'Bearer ' + token(), 'Content-Type':'application/json' },
-    body: JSON.stringify({ query: QUERY, variables:{ owner:OWNER, name } })
+    body: JSON.stringify({ query, variables:{ owner:OWNER, name } })
   })
   if (res.status === 401) throw new Error('Token rejected. Make a new one and paste it again.')
   const json = await res.json()
   if (json.errors) throw new Error(json.errors[0].message)
   const repo = json.data && json.data.repository
   if (!repo) throw new Error('No access to ' + name + '. Check the token scopes and SSO.')
+  return repo.milestones.nodes
+}
+
+async function fetchRepo(name) {
+  const [open, closed] = await Promise.all([ask(Q_OPEN, name), ask(Q_CLOSED, name)])
   return [
-    ...repo.open.nodes.map(m => ({ ...m, isClosed:false })),
-    ...repo.recent.nodes.map(m => ({ ...m, isClosed:true }))
+    ...open.map(m => ({ ...m, isClosed:false })),
+    ...closed.map(m => ({ ...m, isClosed:true }))
   ]
 }
 
 // One release = one milestone title, merged across every repo that has it.
-function merge(all) {
-  const cutoff = new Date(Date.now() - CLOSED_WINDOW_DAYS * 864e5).toISOString().slice(0,10)
+function build(all) {
   const today = new Date().toISOString().slice(0,10)
   const by = new Map()
   for (const m of all) {
-    if (m.isClosed && day(m.dueOn) < cutoff) continue
     if (!by.has(m.title)) by.set(m.title, { title:m.title, due:day(m.dueOn), born:day(m.createdAt),
                                             issues:[], closed:true })
     const row = by.get(m.title)
@@ -194,13 +225,18 @@ function merge(all) {
   const out = []
   for (const row of by.values()) {
     const events = row.issues.flatMap(i => i.timelineItems.nodes)
-    // first time any card in this release left the status it started on
-    const moves = events.filter(e => e.previousStatus).map(e => day(e.createdAt)).sort()
-    // last time any card in this release landed on Done
-    const dones = events.filter(e => e.status === STATUS_DONE).map(e => day(e.createdAt)).sort()
 
-    const firstMove = moves[0] || null
-    const lastDone  = dones.length ? dones[dones.length - 1] : null
+    // Start of work = the first time any card LEFT "To Do", whatever it went to.
+    // If nothing ever left To Do, fall back to the first card that reached a working status
+    // (a card can jump straight from Backlog), then to the day the milestone was made.
+    const leftToDo = events.filter(e => e.previousStatus === STATUS_TODO)
+      .map(e => day(e.createdAt)).sort()
+    const reachedWork = events.filter(e => WORKING.has(e.status))
+      .map(e => day(e.createdAt)).sort()
+    const startedAt = leftToDo[0] || reachedWork[0] || null
+
+    const dones = events.filter(e => e.status === STATUS_DONE).map(e => day(e.createdAt)).sort()
+    const lastDone = dones.length ? dones[dones.length - 1] : null
     const late = !!(lastDone && lastDone > row.due)
 
     let done = 0, ready = 0
@@ -208,31 +244,28 @@ function merge(all) {
     for (const i of row.issues) {
       const t = (i.issueType && i.issueType.name) || 'no type'
       types[t] = (types[t] || 0) + 1
-
-      // the card's status right now = the newest status change on it
       const last = [...i.timelineItems.nodes].sort((a,b) => a.createdAt.localeCompare(b.createdAt)).pop()
       const now = last ? last.status : null
       if (now === STATUS_DONE || i.state === 'CLOSED') done++
       else if (now === STATUS_READY) ready++
-
       for (const a of i.assignees.nodes) {
         const p = people.get(a.login) || { login:a.login, avatar:a.avatarUrl, n:0, qa:QA.has(a.login) }
         p.n++; people.set(a.login, p)
       }
     }
 
-    const start = firstMove || row.born
+    const start = startedAt || row.born
     const span = (new Date(row.due) - new Date(start)) / 864e5
     const gone = (new Date(today) - new Date(start)) / 864e5
-    const all = [...people.values()].sort((a,b) => b.n - a.n)
+    const all2 = [...people.values()].sort((a,b) => b.n - a.n)
 
     out.push({
-      title: row.title, name: ganttLabel(row.title),
+      title: row.title, name: cleanTitle(row.title),
       due: row.due, start, end: late ? lastDone : row.due,
-      firstMove, lastDone, late,
-      state: row.closed ? 'closed' : late ? 'slipped' : firstMove ? 'in progress' : 'upcoming',
+      startedAt, lastDone, late, born: row.born,
+      state: row.closed ? 'closed' : late ? 'slipped' : startedAt ? 'running' : 'upcoming',
       total: row.issues.length, done, ready, types,
-      devs: all.filter(p => !p.qa), qas: all.filter(p => p.qa),
+      devs: all2.filter(p => !p.qa), qas: all2.filter(p => p.qa),
       cardPct: pct(done + ready, row.issues.length),
       donePct: pct(done, row.issues.length),
       timePct: row.closed ? 100 : pct(gone, span)
@@ -241,80 +274,137 @@ function merge(all) {
   return out.sort((a,b) => a.end.localeCompare(b.end) || a.due.localeCompare(b.due))
 }
 
-// Mermaid's gantt parser treats a few words as syntax. Only the FIRST word of a task label
-// matters (verified against the real parser), so a bullet in front makes any title safe.
+const cleanTitle = t => t.replace(/^\[Closed on \d{8}\]\s*/, '').replace(/^\d{8}\s*/, '').trim()
+const inWindow = r => r.state !== 'closed' ||
+  r.end >= new Date(Date.now() - windowDays * 864e5).toISOString().slice(0,10)
+
+const STATE_LABEL = { upcoming:'upcoming', running:'in progress', slipped:'slipped', closed:'closed' }
+
+/* ---- timeline ---- */
+let timeline = null, items = null
+function faces(list) {
+  return list.slice(0,6).map(p => '<img src="' + esc(p.avatar) + '&s=32" title="' + esc(p.login) + '">').join('')
+}
+function itemTooltip(r) {
+  return '<b>' + esc(r.name) + '</b> &middot; ' + STATE_LABEL[r.state] + '<br>'
+    + pretty(r.start) + ' to ' + pretty(r.end)
+    + (r.startedAt ? '' : ' <i>(nothing started yet)</i>') + '<br>'
+    + r.done + ' done' + (r.ready ? ' + ' + r.ready + ' ready for test' : '') + ' of ' + r.total + ' cards<br>'
+    + 'cards ' + Math.round(r.cardPct) + '% &middot; time ' + Math.round(r.timePct) + '%'
+    + (r.devs.length ? '<br>' + faces(r.devs) : '')
+    + (r.qas.length ? ' | ' + faces(r.qas) : '')
+}
+function shading(from, to) {
+  const bg = []
+  const d = new Date(from + 'T00:00:00Z')
+  const end = new Date(to + 'T00:00:00Z')
+  while (d <= end) {
+    const iso = d.toISOString().slice(0,10)
+    const dow = d.getUTCDay()
+    const holiday = HOLIDAYS.has(iso)
+    if (holiday || dow === 0 || dow === 6) {
+      const next = new Date(d); next.setUTCDate(next.getUTCDate() + 1)
+      bg.push({ id:'bg-' + iso, start:iso, end:next.toISOString().slice(0,10), type:'background',
+                className: holiday ? 'holiday' : 'off',
+                title: holiday ? 'Thai public holiday' : 'weekend' })
+    }
+    d.setUTCDate(d.getUTCDate() + 1)
+  }
+  return bg
+}
+
+function drawTimeline(rows) {
+  const shown = rows.filter(inWindow)
+  if (!shown.length) { $('tl').textContent = 'Nothing to show.'; return }
+  const lo = shown.reduce((m, r) => r.start < m ? r.start : m, shown[0].start)
+  const hi = shown.reduce((m, r) => r.end > m ? r.end : m, shown[0].end)
+  const plus = (d, n) => { const x = new Date(d + 'T00:00:00Z'); x.setUTCDate(x.getUTCDate() + n)
+                           return x.toISOString().slice(0,10) }
+
+  const data = shown.map((r, i) => ({
+    id: i,
+    content: esc(r.name) + '<span class="cnt">' + r.done + '/' + r.total + '</span>',
+    start: r.start,
+    end: r.end > r.start ? r.end : plus(r.start, 1),   // never a zero-width bar
+    className: 'st-' + r.state,
+    title: itemTooltip(r),
+    url: PROJECT_SLICE + encodeURIComponent(r.title)
+  })).concat(shading(lo, plus(hi, 14)))
+
+  if (!timeline) {
+    items = new vis.DataSet(data)
+    timeline = new vis.Timeline($('tl'), items, {
+      stack: true, stackSubgroups: true,
+      horizontalScroll: true, verticalScroll: false,
+      zoomKey: 'ctrlKey', zoomMin: 3 * 864e5, zoomMax: 400 * 864e5,
+      moveable: true, selectable: true, orientation: { axis:'top' },
+      margin: { item: { horizontal: 0, vertical: 6 }, axis: 8 },
+      tooltip: { followMouse: true, overflowMethod: 'cap' },
+      showCurrentTime: true, maxHeight: '70vh'
+    })
+    timeline.on('select', ({ items: sel }) => {
+      const it = sel.length && items.get(sel[0])
+      if (it && it.url) window.open(it.url, '_blank', 'noopener')
+    })
+  } else {
+    items.clear(); items.add(data)
+  }
+  $('windowLabel').textContent = 'closed releases: last ' + windowDays + ' days'
+}
+
+/* ---- mermaid export, kept for pasting into a GitHub issue ---- */
 const GANTT_KEYWORDS = /^(call|click|href|title|section|gantt|dateformat|axisformat|tickinterval|excludes|includes|todaymarker|inclusiveenddates|topaxis|weekday|weekend|acctitle|accdescr)\b/i
-function ganttLabel(title) {
-  const t = title.replace(/^\[Closed on \d{8}\]\s*/, '').replace(/^\d{8}\s*/, '')
-                 .replace(/[:,#;]/g, '').replace(/%%/g, '%').trim()
+function mermaidLabel(name) {
+  const t = name.replace(/[:,#;]/g, '').replace(/%%/g, '%').trim()
   return GANTT_KEYWORDS.test(t) ? '• ' + t : t
 }
-
-const pretty = s => new Date(s + 'T00:00:00Z')
-  .toLocaleDateString('en-GB', { day:'numeric', month:'short', timeZone:'UTC' })
-
-const THEME = {
-  taskBkgColor:'#3b82f6',       taskBorderColor:'#1d4ed8',        // in progress
-  activeTaskBkgColor:'#5eead4', activeTaskBorderColor:'#0d9488',  // upcoming
-  doneTaskBkgColor:'#d1d5db',   doneTaskBorderColor:'#9ca3af',    // closed
-  critBkgColor:'#f59e0b',       critBorderColor:'#b45309',        // slipped
-  excludeBkgColor:'#eef2f7',    todayLineColor:'#d33'
-}
-const TAG = { 'in progress':'', 'upcoming':'active', 'closed':'done', 'slipped':'crit' }
-
-function toGantt(rows) {
-  const lines = [
-    '%%{init: {"themeVariables": ' + JSON.stringify(THEME) + '}}%%',
-    'gantt',
-    '    title Releases',
-    '    dateFormat YYYY-MM-DD',
-    '    axisFormat %-d %b',
-    '    tickInterval 1week',
-    '    weekday monday',
-    '    todayMarker stroke-width:3px,stroke:#d33,opacity:0.9',
-    '    excludes weekends ' + HOLIDAYS.join(' '),
-    ''
-  ]
+const TAG = { running:'', upcoming:'active', closed:'done', slipped:'crit' }
+function toMermaid(rows) {
+  const shown = rows.filter(inWindow)
+  const theme = { taskBkgColor:'#3b82f6', taskBorderColor:'#1d4ed8',
+    activeTaskBkgColor:'#5eead4', activeTaskBorderColor:'#0d9488',
+    doneTaskBkgColor:'#d1d5db', doneTaskBorderColor:'#9ca3af',
+    critBkgColor:'#f59e0b', critBorderColor:'#b45309', todayLineColor:'#d33' }
+  const lines = ['```mermaid',
+    '%%{init: {"themeVariables": ' + JSON.stringify(theme) + '}}%%', 'gantt',
+    '    title ingfah release roadmap', '    dateFormat YYYY-MM-DD', '    axisFormat %-d %b',
+    '    tickInterval 1week', '    weekday monday',
+    '    todayMarker stroke-width:3px,stroke:#d33,opacity:0.9', '']
   let section = null
-  for (const r of rows) {
+  for (const r of shown) {
     if (r.end !== section) { section = r.end; lines.push('    section ' + pretty(r.end)) }
     const tag = TAG[r.state]
     const span = r.start >= r.end ? r.end + ', 1d' : r.start + ', ' + r.end
-    lines.push('    ' + r.name + ' ' + r.done + '/' + r.total + ' :' + (tag ? tag + ', ' : '') + span)
+    lines.push('    ' + mermaidLabel(r.name) + ' ' + r.done + '/' + r.total
+               + ' :' + (tag ? tag + ', ' : '') + span)
   }
+  lines.push('```')
   return lines.join('\n')
 }
 
 /* ---- ratio bars ---- */
-// a stable soft colour per person, so a narrow slice still reads as someone
 const hue = s => { let h = 0; for (const c of s) h = (h * 31 + c.charCodeAt(0)) % 360; return h }
-
 function peopleBar(list) {
   if (!list.length) return '<span class="muted">-</span>'
   const total = list.reduce((s, p) => s + p.n, 0)
-  const segs = list.map(p => {
+  return '<span class="ratio">' + list.map(p => {
     const w = p.n / total * 100
     const tip = '<img src="' + esc(p.avatar) + '&s=32">' + esc(p.login)
       + ' &middot; ' + p.n + ' cards &middot; ' + Math.round(w) + '%'
     return '<span class="seg" style="width:' + w.toFixed(2) + '%;background:hsl(' + hue(p.login) + ',65%,88%)"'
       + ' data-tip="' + esc(tip) + '">'
       + '<img class="face" src="' + esc(p.avatar) + '&s=48" alt="' + esc(p.login) + '"></span>'
-  }).join('')
-  return '<span class="ratio">' + segs + '</span>'
+  }).join('') + '</span>'
 }
-
 function typeBar(r) {
   if (!r.total) return '<span class="muted">-</span>'
-  const segs = Object.entries(r.types).sort((a,b) => b[1] - a[1]).map(([t, n]) => {
+  return '<span class="ratio">' + Object.entries(r.types).sort((a,b) => b[1] - a[1]).map(([t, n]) => {
     const w = n / r.total * 100
     const tip = '<b>' + esc(t) + '</b> &middot; ' + n + ' cards &middot; ' + Math.round(w) + '%'
     return '<span class="seg" style="width:' + w.toFixed(2) + '%;background:'
       + (TYPE_COLOR[t] || '#8b949e') + '" data-tip="' + esc(tip) + '"></span>'
-  }).join('')
-  return '<span class="ratio">' + segs + '</span>'
+  }).join('') + '</span>'
 }
-
-/* ---- progress: cards on top, clock underneath ---- */
 function progressCell(r) {
   const behind = r.timePct > r.cardPct + 10 && r.state !== 'closed'
   const cardTip = '<b>Cards</b> ' + r.done + ' done'
@@ -337,13 +427,12 @@ const COLS = [
   { k:'name',  h:'Release', cell:r => '<a class="rel" target="_blank" rel="noopener" href="'
       + PROJECT_SLICE + encodeURIComponent(r.title) + '">' + esc(r.name) + '</a>',
     val:r => r.name.toLowerCase() },
-  { k:'state', h:'State',    cell:r => esc(r.state), val:r => r.state },
-  // sorts by how far the cards are BEHIND the clock, most behind first
+  { k:'state', h:'State',    cell:r => STATE_LABEL[r.state], val:r => r.state },
   { k:'prog',  h:'Progress', cell:progressCell, val:r => r.cardPct - r.timePct },
   { k:'types', h:'Card mix', cell:typeBar, val:r => r.total },
   { k:'devs',  h:'Devs',     cell:r => peopleBar(r.devs), val:r => r.devs.length },
   { k:'qas',   h:'QAs',      cell:r => peopleBar(r.qas),  val:r => r.qas.length },
-  { k:'start', h:'Started',  cell:r => pretty(r.start) + (r.firstMove ? '' : ' <span class="muted">(none moved)</span>'),
+  { k:'start', h:'Started',  cell:r => pretty(r.start) + (r.startedAt ? '' : ' <span class="muted">(not started)</span>'),
     val:r => r.start },
   { k:'due',   h:'Due',      cell:r => pretty(r.due), val:r => r.due },
   { k:'last',  h:'Last Done',cell:r => r.lastDone ? pretty(r.lastDone) : '-', val:r => r.lastDone || '' }
@@ -352,7 +441,7 @@ let rowsCache = [], sortKey = 'due', sortDir = 1
 
 function drawTable() {
   const col = COLS.find(c => c.k === sortKey)
-  const sorted = [...rowsCache].sort((a, b) => {
+  const sorted = rowsCache.filter(inWindow).sort((a, b) => {
     const x = col.val(a), y = col.val(b)
     return (x < y ? -1 : x > y ? 1 : 0) * sortDir
   })
@@ -371,7 +460,7 @@ function drawTable() {
   })
 }
 
-/* ---- hover tooltip ---- */
+/* ---- hover tooltip for the ratio bars ---- */
 const tip = $('tip')
 document.addEventListener('mousemove', e => {
   const el = e.target.closest && e.target.closest('[data-tip]')
@@ -382,92 +471,45 @@ document.addEventListener('mousemove', e => {
   tip.style.top = (e.clientY + 16) + 'px'
 })
 
-/* ---- sideways pan and zoom (never vertical) ---- */
-const view = $('viewport'), pan = $('pan')
-let scale = 1, tx = 0
-const TOP = 12
-
-function apply() {
-  pan.style.transform = 'translate(' + tx + 'px,' + TOP + 'px) scale(' + scale + ')'
-  $('zoomLabel').textContent = Math.round(scale * 100) + '%'
-  const svg = pan.querySelector('svg')
-  if (svg) view.style.height = (svg.getBoundingClientRect().height + TOP * 2) + 'px'
+/* ---- buttons ---- */
+$('zoomIn').onclick  = () => timeline && timeline.zoomIn(0.4)
+$('zoomOut').onclick = () => timeline && timeline.zoomOut(0.4)
+$('today').onclick   = () => timeline && timeline.moveTo(new Date())
+$('fit').onclick     = () => timeline && timeline.fit()
+$('older').onclick = () => {
+  windowDays = windowDays >= 3650 ? 30 : windowDays * 3
+  drawTimeline(rowsCache); drawTable()
 }
-function zoomAt(factor, cx) {
-  const next = Math.min(4, Math.max(0.15, scale * factor))
-  tx = cx - (cx - tx) * (next / scale)
-  scale = next
-  apply()
+$('mmdCopy').onclick = async () => {
+  await navigator.clipboard.writeText(toMermaid(rowsCache))
+  $('mmdCopy').textContent = 'Copied'
+  setTimeout(() => $('mmdCopy').textContent = 'Copy Mermaid', 1500)
 }
-function fitWidth() {
-  const svg = pan.querySelector('svg'); if (!svg) return
-  const w = svg.getBoundingClientRect().width / scale
-  scale = Math.min((view.clientWidth - 24) / w, 4)
-  tx = 12; apply()
+$('mmdSave').onclick = () => {
+  const blob = new Blob([toMermaid(rowsCache)], { type:'text/markdown' })
+  const a = document.createElement('a')
+  a.href = URL.createObjectURL(blob); a.download = 'ingfah-roadmap.mmd'; a.click()
+  URL.revokeObjectURL(a.href)
 }
-function backToToday() {
-  const svg = pan.querySelector('svg'); if (!svg) return
-  scale = 1; tx = 0; apply()
-  const line = svg.querySelector('.today')
-  if (!line) { tx = 12; apply(); return }
-  const x = line.getBoundingClientRect().left - svg.getBoundingClientRect().left
-  tx = view.clientWidth / 2 - x
-  apply()
-}
-
-view.addEventListener('wheel', e => {
-  if (e.ctrlKey || e.metaKey) {
-    e.preventDefault()
-    zoomAt(e.deltaY < 0 ? 1.12 : 1 / 1.12, e.clientX - view.getBoundingClientRect().left)
-  } else if (Math.abs(e.deltaX) > Math.abs(e.deltaY) || e.shiftKey) {
-    e.preventDefault()                       // sideways swipe moves the timeline
-    tx -= e.shiftKey && !e.deltaX ? e.deltaY : e.deltaX
-    apply()
-  }
-  // a plain up/down scroll is left alone, so the page scrolls as normal
-}, { passive:false })
-
-let dragging = false, lastX = 0
-view.addEventListener('pointerdown', e => {
-  dragging = true; lastX = e.clientX
-  view.classList.add('dragging'); view.setPointerCapture(e.pointerId)
-})
-view.addEventListener('pointermove', e => {
-  if (!dragging) return
-  tx += e.clientX - lastX; lastX = e.clientX; apply()   // sideways only
-})
-const stopDrag = () => { dragging = false; view.classList.remove('dragging') }
-view.addEventListener('pointerup', stopDrag)
-view.addEventListener('pointercancel', stopDrag)
-addEventListener('resize', apply)
-
-$('zoomIn').onclick  = () => zoomAt(1.25, view.clientWidth / 2)
-$('zoomOut').onclick = () => zoomAt(1 / 1.25, view.clientWidth / 2)
-$('today').onclick = backToToday
-$('fitAll').onclick = fitWidth
 
 /* ---- load ---- */
 async function load() {
-  if (!token()) { $('gate').style.display = 'block'; pan.textContent = ''; return }
+  if (!token()) { $('gate').style.display = 'block'; $('tl').textContent = ''; return }
   $('gate').style.display = 'none'
   try {
     const all = (await Promise.all(REPOS.map(fetchRepo))).flat()
-    rowsCache = merge(all)
+    rowsCache = build(all)
     drawTable()
-    const def = toGantt(rowsCache)
-    try { await mermaid.parse(def) }
-    catch (pe) { throw new Error('Chart syntax problem, the table below is still correct. ' + pe.message) }
-    const { svg } = await mermaid.render('gantt-' + Date.now(), def)
-    pan.innerHTML = svg
-    backToToday()
-    const n = s => rowsCache.filter(r => r.state === s).length
-    const devs = new Set(rowsCache.flatMap(r => r.devs.map(p => p.login))).size
-    const qas  = new Set(rowsCache.flatMap(r => r.qas.map(p => p.login))).size
+    drawTimeline(rowsCache)
+    const shown = rowsCache.filter(inWindow)
+    const n = s => shown.filter(r => r.state === s).length
+    const devs = new Set(shown.flatMap(r => r.devs.map(p => p.login))).size
+    const qas  = new Set(shown.flatMap(r => r.qas.map(p => p.login))).size
     $('stamp').textContent = 'updated ' + new Date().toLocaleTimeString()
-      + ' · ' + rowsCache.length + ' releases · ' + devs + ' devs · ' + qas + ' QAs'
+      + ' · ' + shown.length + ' releases · ' + devs + ' devs · ' + qas + ' QAs'
       + (n('slipped') ? ' · ' + n('slipped') + ' slipped' : '')
   } catch (e) {
-    pan.innerHTML = '<p class="err" style="padding:16px">' + esc(e.message) + '</p>'
+    $('tl').innerHTML = '<p class="err" style="padding:16px">' + esc(e.message) + '</p>'
     if (/rejected|access/i.test(e.message)) { $('gate').style.display = 'block'; $('gateErr').textContent = e.message }
   }
 }
