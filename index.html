@@ -493,7 +493,14 @@ function build(all) {
       title: row.title, name: cleanTitle(row.title), refs: row.refs,
       due: row.due, start, end: endDate,
       startedAt, lastDone, late, born: row.born, closedAt: row.closedAt,
-      state: row.closed ? 'closed' : late ? 'slipped' : startedAt ? 'running' : 'upcoming',
+      // Slipped is a live risk: the due date has passed and cards are still not Done.
+      // Finishing late is a separate fact, kept in `late`, and shown in the date column.
+      // A closed release is just closed, whatever happened on the way.
+      state: row.closed ? 'closed'
+           : (row.due < today && done < row.issues.length) ? 'slipped'
+           : startedAt ? 'running' : 'upcoming',
+      overdueBy: row.due < today
+        ? Math.round((new Date(today) - new Date(row.due)) / 864e5) : 0,
       barStart: start < endDate ? start : endDate,
       barEnd:   start < endDate ? endDate : start,
       total: row.issues.length, done, ready, types, statuses, cards,
@@ -1011,6 +1018,20 @@ function progressCell(r) {
 }
 
 /* ---- table ---- */
+// say why a release is in the state it is, so the rule never has to be taken on trust
+function stateWhy(r) {
+  const left = r.total - r.done
+  if (r.state === 'closed') return '<b>closed</b><br>'
+    + (r.late ? 'finished ' + pretty(r.lastDone) + ', after the ' + pretty(r.due) + ' due date'
+              : 'finished on time')
+  if (r.state === 'slipped') return '<b>slipped</b><br>due ' + pretty(r.due) + ' passed '
+    + r.overdueBy + ' day' + (r.overdueBy > 1 ? 's' : '') + ' ago<br>'
+    + left + ' card' + (left > 1 ? 's' : '') + ' still not Done'
+  if (r.state === 'upcoming') return '<b>upcoming</b><br>no card has left To Do yet'
+  return '<b>in progress</b><br>' + left + ' card' + (left > 1 ? 's' : '') + ' left'
+    + ', due ' + pretty(r.due)
+}
+
 // start → due on one line, with the real finish only called out when it ran past the due date
 function datesCell(r) {
   const late = r.late && r.lastDone
@@ -1024,7 +1045,8 @@ const COLS = [
       + PROJECT_SLICE + encodeURIComponent(r.title) + '">' + esc(r.name) + '</a>',
     val:r => r.name.toLowerCase() },
   { k:'state', h:'State',
-    cell:r => '<span class="pill ' + r.state + '">' + STATE_LABEL[r.state] + '</span>',
+    cell:r => '<span class="pill ' + r.state + '" data-tip="' + esc(stateWhy(r)) + '">'
+      + STATE_LABEL[r.state] + '</span>',
     val:r => r.state },
   { k:'prog',  h:'Progress', cell:progressCell, val:r => r.cardPct - r.timePct },
   { k:'build', h:'Story & Task', cell:r => cardBlocks(r, BUILD_TYPES, 'Story & Task'),
