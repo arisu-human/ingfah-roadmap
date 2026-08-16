@@ -91,6 +91,12 @@
          font-size:12px; padding:6px 10px; border-radius:6px; white-space:nowrap; line-height:1.5;
          box-shadow:0 2px 8px rgba(0,0,0,.25); }
   #tip img { width:16px; height:16px; border-radius:50%; vertical-align:-3px; margin-right:5px; }
+  .bar.ask { display:none; background:#fff8c5; border-bottom:1px solid #d4a72c; }
+  .bar.ask.on { display:flex; }
+  button.primary { background:#1f883d; border-color:#1a7f37; color:#fff; font-weight:600; }
+  button.primary:hover { background:#1a7f37; }
+  button:disabled { opacity:.6; cursor:default; }
+  .vis-item .vis-drag-right { width:10px; cursor:ew-resize; }
   .err { color:#b62324; }
   #gate { display:none; }
 </style>
@@ -123,12 +129,20 @@
     <span class="key"><i style="background:#3b82f6"></i>in progress</span>
     <span class="key"><i style="background:#f59e0b"></i>slipped</span>
     <span class="key"><i style="background:#d1d5db"></i>closed</span>
+    <span class="muted">drag the right edge of a bar to move the due date</span>
     <span class="key" id="dateNow" style="font-weight:600;color:#0969da"></span>
     <span class="sep"></span>
     <span class="muted" id="windowLabel"></span>
     <button id="older">Show older</button>
     <button id="mmdCopy">Copy Mermaid</button>
     <button id="mmdSave">Download .mmd</button>
+  </div>
+  <div class="bar ask" id="ask">
+    <span id="askText"></span>
+    <button id="askRename"></button>
+    <button id="askGo" class="primary">Confirm</button>
+    <button id="askNo">Cancel</button>
+    <span class="muted" id="askRepos"></span>
   </div>
   <div id="tl">Loading...</div>
 </div>
@@ -168,7 +182,7 @@ const HOLIDAYS = new Set([
 let windowDays = 30        // how far back closed releases are shown; the Show older button grows it
 
 const MS_FIELDS = `
-  title dueOn createdAt
+  number title dueOn createdAt
   issues(first:100){
     nodes{
       state
@@ -222,8 +236,8 @@ async function ask(query, name) {
 async function fetchRepo(name) {
   const [open, closed] = await Promise.all([ask(Q_OPEN, name), ask(Q_CLOSED, name)])
   return [
-    ...open.map(m => ({ ...m, isClosed:false })),
-    ...closed.map(m => ({ ...m, isClosed:true }))
+    ...open.map(m => ({ ...m, repo:name, isClosed:false })),
+    ...closed.map(m => ({ ...m, repo:name, isClosed:true }))
   ]
 }
 
@@ -233,11 +247,13 @@ function build(all) {
   const by = new Map()
   for (const m of all) {
     if (!by.has(m.title)) by.set(m.title, { title:m.title, due:day(m.dueOn), born:day(m.createdAt),
-                                            issues:[], closed:true })
+                                            issues:[], refs:[], closed:true })
     const row = by.get(m.title)
     if (day(m.dueOn) < row.due) row.due = day(m.dueOn)
     if (day(m.createdAt) < row.born) row.born = day(m.createdAt)
     if (!m.isClosed) row.closed = false        // open anywhere means the release is still open
+    // every repo copy of this title, so one drag can move them all together
+    row.refs.push({ repo:m.repo, number:m.number, dueOn:m.dueOn, closed:m.isClosed })
     // an Epic is a container, not a card: it would add a phantom release with no real work
     row.issues.push(...m.issues.nodes.filter(i => !i.issueType || i.issueType.name !== 'Epic'))
   }
@@ -285,7 +301,7 @@ function build(all) {
     const all2 = [...people.values()].sort((a,b) => b.n - a.n)
 
     out.push({
-      title: row.title, name: cleanTitle(row.title),
+      title: row.title, name: cleanTitle(row.title), refs: row.refs,
       due: row.due, start, end: endDate,
       startedAt, lastDone, late, born: row.born,
       state: row.closed ? 'closed' : late ? 'slipped' : startedAt ? 'running' : 'upcoming',
@@ -342,10 +358,14 @@ function shading(from, to) {
 
 const plus = (d, n) => { const x = new Date(d + 'T00:00:00Z'); x.setUTCDate(x.getUTCDate() + n)
                          return x.toISOString().slice(0,10) }
-let groups = null, firstDraw = true
+let groups = null, firstDraw = true, shownCache = [], draggedAt = 0
+
+// vis hands back a Date; round it to the nearest whole day so a bar always lands on a date
+const toDay = d => new Date(Math.round(+d / 864e5) * 864e5).toISOString().slice(0,10)
 
 function drawTimeline(rows) {
   const shown = rows.filter(inWindow)
+  shownCache = shown
   if (!shown.length) { $('tl').textContent = 'Nothing to show.'; return }
   const lo = shown.reduce((m, r) => r.barStart < m ? r.barStart : m, shown[0].barStart)
   const hi = shown.reduce((m, r) => r.barEnd > m ? r.barEnd : m, shown[0].barEnd)
@@ -362,7 +382,9 @@ function drawTimeline(rows) {
     end: r.barEnd > r.barStart ? r.barEnd : plus(r.barStart, 1),   // never a zero-width bar
     className: 'st-' + r.state,
     title: itemTooltip(r),
-    url: PROJECT_SLICE + encodeURIComponent(r.title)
+    url: PROJECT_SLICE + encodeURIComponent(r.title),
+    // only an open release can be rescheduled, and only its right edge moves
+    editable: r.state === 'closed' ? false : { updateTime:true, updateGroup:false, remove:false }
   })).concat(shading(lo, plus(hi, 14)))   // background bands carry no group, so they span every row
 
   if (!timeline) {
@@ -376,12 +398,33 @@ function drawTimeline(rows) {
       margin: { item: { horizontal: 0, vertical: 5 }, axis: 6 },
       tooltip: { followMouse: true, overflowMethod: 'cap' },
       showCurrentTime: true, maxHeight: '72vh', groupOrder: 'order',
+      editable: { updateTime:true, updateGroup:false, add:false, remove:false, overrideItems:false },
+      snap: d => new Date(Math.round(+d / 864e5) * 864e5),
+      // while the bar is being dragged: hold the start still, so only the due date moves
+      onMoving: (item, cb) => {
+        const r = shownCache[item.id]
+        if (!r) return cb(null)
+        draggedAt = Date.now()
+        item.start = new Date(r.barStart + 'T00:00:00Z')
+        const min = +item.start + 864e5
+        if (+item.end < min) item.end = new Date(min)
+        cb(item)
+      },
+      // dropped: keep the bar where it landed and ask for a confirmation before touching GitHub
+      onMove: (item, cb) => {
+        const r = shownCache[item.id]
+        if (!r) return cb(null)
+        draggedAt = Date.now()
+        cb(item)
+        askConfirm(r, toDay(item.end))
+      },
       format: {
         minorLabels: { day:'D', weekday:'D', week:'D', month:'MMM' },
         majorLabels: { day:'MMMM YYYY', weekday:'MMMM YYYY', week:'MMMM YYYY', month:'YYYY' }
       }
     })
     timeline.on('select', ({ items: sel }) => {
+      if (Date.now() - draggedAt < 400) return           // a drag also selects, do not open a tab
       const it = sel.length && items.get(sel[0])
       if (it && it.url) window.open(it.url, '_blank', 'noopener')
     })
@@ -422,6 +465,81 @@ function showFuture(shown) {
   const today = new Date().toISOString().slice(0,10)
   const hi = rows.reduce((m, r) => r.barEnd > m ? r.barEnd : m, today)
   timeline.setWindow(plus(today, -7), plus(hi, 7), { animation:false })
+}
+
+/* ---- drag the right edge of a bar to move the due date ---- */
+let pending = null, renameTo = null, renameOn = false
+const prettyDue = d => d ? pretty(d) : 'no due date'
+const stampOf = d => d.replace(/-/g, '')
+
+// milestone titles start with the due date, so a moved date leaves a title that lies.
+// Offer the matching rename, but only when the title really carries the old date.
+function paintRename() {
+  const b = $('askRename')
+  if (!renameTo) { b.style.display = 'none'; return }
+  b.style.display = ''
+  b.textContent = (renameOn ? '☑' : '☐') + ' rename to ' + renameTo.slice(0, 8)
+  b.title = renameTo
+}
+$('askRename').onclick = () => { renameOn = !renameOn; paintRename() }
+
+function askConfirm(r, newDue) {
+  const targets = r.refs.filter(f => !f.closed)      // never reschedule a closed milestone
+  if (newDue === r.due || !targets.length) return cancelAsk(true)
+  renameTo = r.due && r.title.startsWith(stampOf(r.due))
+    ? stampOf(newDue) + r.title.slice(8) : null
+  renameOn = !!renameTo
+  paintRename()
+  pending = { due:newDue, targets }
+  $('askText').innerHTML = 'Move <b>' + esc(r.name) + '</b> due date from ' + prettyDue(r.due)
+    + ' to <b>' + pretty(newDue) + '</b>?'
+  $('askRepos').textContent = 'changes ' + targets.map(t => t.repo + ' #' + t.number).join(', ')
+  $('askGo').disabled = false
+  $('askGo').textContent = 'Confirm'
+  $('ask').classList.add('on')
+}
+
+function cancelAsk(redraw) {
+  pending = null
+  $('ask').classList.remove('on')
+  // put the bar back where it was, after vis has finished its own drag handling
+  if (redraw) setTimeout(() => drawTimeline(rowsCache), 0)
+}
+
+// GitHub GraphQL cannot write a milestone, so this uses the REST route instead
+async function setDue(ref, due, title) {
+  const at = ref.dueOn ? ref.dueOn.slice(10) : 'T12:00:00Z'     // keep the time of day already in use
+  const body = { due_on: due + at }
+  if (title) body.title = title
+  const res = await fetch('https://api.github.com/repos/' + OWNER + '/' + ref.repo
+    + '/milestones/' + ref.number, {
+    method: 'PATCH',
+    headers: { 'Authorization':'Bearer ' + token(), 'Accept':'application/vnd.github+json',
+               'Content-Type':'application/json' },
+    body: JSON.stringify(body)
+  })
+  if (!res.ok) {
+    const j = await res.json().catch(() => ({}))
+    throw new Error(ref.repo + ' #' + ref.number + ': ' + (j.message || res.status))
+  }
+}
+
+$('askNo').onclick = () => cancelAsk(true)
+$('askGo').onclick = async () => {
+  if (!pending) return
+  const { due, targets } = pending
+  const title = renameOn ? renameTo : null
+  $('askGo').disabled = true
+  $('askGo').textContent = 'Saving...'
+  try {
+    for (const t of targets) await setDue(t, due, title)   // one at a time, so an error names the repo
+    cancelAsk()
+    await load()
+  } catch (e) {
+    $('askText').innerHTML = '<span class="err">' + esc(e.message) + '</span>'
+    $('askGo').disabled = false
+    $('askGo').textContent = 'Try again'
+  }
 }
 
 /* ---- mermaid export, kept for pasting into a GitHub issue ---- */
