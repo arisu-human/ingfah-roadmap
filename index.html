@@ -78,7 +78,8 @@
   .vis-item.st-closed  { background:#f0f2f5; border-color:#d8dee4; }
 
   /* one equal block per card: fill = card type, stripe underneath = repo */
-  .blocks { display:flex; height:17px; width:100%; align-items:stretch; }
+  /* 19px block with a 2px item margin is the same 23px row as a 17px block with 3px */
+  .blocks { display:flex; height:19px; width:100%; align-items:stretch; }
   .blocks i { flex:1 1 0; min-width:2px; box-sizing:border-box;
               border-right:1px solid rgba(255,255,255,.9); border-bottom:3px solid transparent; }
   .blocks i:last-child { border-right:0; }
@@ -168,14 +169,17 @@
   a.rel { color:inherit; text-decoration:none; border-bottom:1px dotted var(--hairline); }
   a.rel:hover { color:var(--link); border-bottom-color:var(--link); }
 
-  .ratio { display:flex; height:17px; border-radius:6px; overflow:hidden;
+  /* The pie is the tallest thing in a row at 26px, so it sets the row height. Everything
+     else grows to 24px to use that space instead of floating in it: the rows do not get
+     any taller, the bars just stop wasting the margin they already had. */
+  .ratio { display:flex; height:24px; border-radius:8px; overflow:hidden;
            border:1px solid var(--hairline); background:var(--surface-soft); }
   .ratio .seg { height:100%; display:flex; align-items:center; justify-content:center;
                 overflow:hidden; min-width:3px; }
-  .ratio .face { width:14px; height:14px; border-radius:50%; display:block;
+  .ratio .face { width:20px; height:20px; border-radius:50%; display:block;
                  border:1.5px solid rgba(255,255,255,.9); flex:0 0 auto; }
   /* one block per card, so a count is readable by eye even when the bar fills the column */
-  .cards { display:flex; height:17px; border-radius:6px; overflow:hidden;
+  .cards { display:flex; height:24px; border-radius:8px; overflow:hidden;
            border:1px solid var(--hairline); background:var(--surface-soft); }
   .cards i { flex:1 1 0; min-width:3px; box-sizing:border-box;
              border-right:1px solid var(--canvas); }
@@ -183,12 +187,13 @@
   .cards.none { border-style:dashed; }
   .cellrow { display:flex; align-items:center; gap:8px; }
   .pie { width:26px; height:26px; border-radius:50%; flex:0 0 auto; display:block;
-         box-shadow:inset 0 0 0 1px rgba(255,255,255,.7), 0 0 0 1px var(--hairline); }
+         box-shadow:inset 0 0 0 1.5px rgba(255,255,255,.85), 0 0 0 1px var(--hairline); }
   .pie.empty { background:var(--surface-soft); box-shadow:0 0 0 1px var(--hairline); }
   #tip .dot { width:9px; height:9px; border-radius:50%; display:inline-block; margin-right:6px; }
-  .pbar { display:flex; height:8px; border-radius:2px; overflow:hidden; background:var(--surface-soft);
+  /* 10 + 4 + 10 = 24px, matching the other bars without pushing past the 26px pie */
+  .pbar { display:flex; height:10px; border-radius:3px; overflow:hidden; background:var(--surface-soft);
           border:1px solid var(--hairline); }
-  .pbar + .pbar { margin-top:3px; }
+  .pbar + .pbar { margin-top:4px; }
   .pbar i { display:block; height:100%; }
   .pbar i.time  { background:#9297a0 }
   .pbar i.time.behind { background:#f59e0b }
@@ -317,9 +322,12 @@ for (const b of BOARD) { STATUS_COLOR[b.s] = b.c; STATUS_SHORT[b.s] = b.short }
 const DONE_FIRST = [...BOARD].reverse()
 const DONE_FIRST_KEYS = DONE_FIRST.map(b => b.s)
 
-// one colour per repo, so a bar shows at a glance which side the work sits on
-const REPO_COLOR = { 'zai-backend':'#1f6feb', 'zai-frontend':'#2da44e', 'zai-bo-frontend':'#8250df',
-                     'ingfah-rag':'#e16f24', 'ingfah-dev-docs':'#0e7490', 'zai-docs':'#bf3989' }
+// One colour per repo, used only by the pies now. Status and type both live in soft pastels,
+// so repo gets a deliberately different register: deep saturated jewel tones. A dark segment
+// cannot be mistaken for a pastel one whatever the hue. Three are the signature card colours
+// from DESIGN.md.
+const REPO_COLOR = { 'zai-backend':'#123a7a', 'zai-frontend':'#0a2e0e', 'zai-bo-frontend':'#aa2d00',
+                     'ingfah-rag':'#7a1f5c', 'ingfah-dev-docs':'#0e7490', 'zai-docs':'#7a5c00' }
 const REPO_SHORT = { 'zai-backend':'BE', 'zai-frontend':'FE', 'zai-bo-frontend':'FE B/O',
                      'ingfah-rag':'RAG', 'ingfah-dev-docs':'DOCS', 'zai-docs':'ZDOCS' }
 
@@ -664,7 +672,7 @@ function drawTimeline(rows) {
       // vis item editing is off on purpose: dragging anywhere then pans the view like a hand
       // tool, and the due date is moved by our own handle on the right edge instead
       moveable: true, selectable: false, editable: false, orientation: { axis:'top' },
-      margin: { item: { horizontal: 0, vertical: 3 }, axis: 4 },
+      margin: { item: { horizontal: 0, vertical: 2 }, axis: 4 },
       showCurrentTime: true, maxHeight: '72vh', groupOrder: 'order',
       format: {
         minorLabels: { day:'D', weekday:'D', week:'D', month:'MMM' },
