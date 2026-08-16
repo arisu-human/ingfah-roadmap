@@ -170,6 +170,11 @@
              border-right:1px solid var(--canvas); }
   .cards i:last-child { border-right:0; }
   .cards.none { border-style:dashed; }
+  .cellrow { display:flex; align-items:center; gap:8px; }
+  .pie { width:17px; height:17px; border-radius:50%; flex:0 0 auto; display:block;
+         box-shadow:inset 0 0 0 1px rgba(255,255,255,.7), 0 0 0 1px var(--hairline); }
+  .pie.empty { background:var(--surface-soft); box-shadow:0 0 0 1px var(--hairline); }
+  #tip .dot { width:9px; height:9px; border-radius:50%; display:inline-block; margin-right:6px; }
   .pbar { display:flex; height:8px; border-radius:2px; overflow:hidden; background:var(--surface-soft);
           border:1px solid var(--hairline); }
   .pbar + .pbar { margin-top:3px; }
@@ -465,10 +470,11 @@ function build(all) {
     const all2 = [...people.values()].sort((a,b) => b.n - a.n)
     const done = statuses[STATUS_DONE] || 0
     const ready = statuses[STATUS_READY] || 0
-    // group the blocks by repo, then by how far the card has moved, so a bar reads left to right
+    // order the blocks by how far the card has moved, so a bar reads Backlog on the left to
+    // Done on the right and the finished share is one solid run
     const order = BOARD.map(b => b.s)
-    cards.sort((a, b) => a.repo.localeCompare(b.repo)
-      || order.indexOf(a.status) - order.indexOf(b.status) || a.number - b.number)
+    cards.sort((a, b) => order.indexOf(a.status) - order.indexOf(b.status)
+      || a.type.localeCompare(b.type) || a.number - b.number)
 
     out.push({
       title: row.title, name: cleanTitle(row.title), refs: row.refs,
@@ -517,7 +523,7 @@ function itemTooltip(r) {
 // block colours, the tooltips and the drag handle marker and left one flat bar behind.
 const elem = (tag, cls) => { const e = document.createElement(tag); if (cls) e.className = cls; return e }
 
-// one equal block per card: colour is the card type, the stripe underneath is the repo
+// one equal block per card: fill is how far the card has moved, the stripe underneath is its type
 function blocksEl(r, i) {
   const wrap = elem('span', 'blocks')
   wrap.dataset.id = i
@@ -525,8 +531,8 @@ function blocksEl(r, i) {
   const grey = r.state === 'closed'
   for (const c of r.cards) {
     const b = elem('i', c.type === 'no type' ? 'notype' : '')
-    b.style.background = grey ? '#dde2e7' : (TYPE_COLOR[c.type] || TYPE_COLOR['no type'])
-    b.style.borderBottomColor = grey ? '#c6cdd5' : (REPO_COLOR[c.repo] || '#8b949e')
+    b.style.background = grey ? '#dde2e7' : (STATUS_COLOR[c.status] || '#afb8c1')
+    b.style.borderBottomColor = grey ? '#c6cdd5' : (TYPE_COLOR[c.type] || TYPE_COLOR['no type'])
     b.dataset.tip = '<b>' + esc(REPO_SHORT[c.repo] || c.repo) + ' #' + c.number + '</b> &middot; '
       + esc(c.type) + '<br>' + esc(STATUS_SHORT[c.status] || c.status)
     wrap.appendChild(b)
@@ -934,21 +940,43 @@ function peopleBar(list) {
 // as the cards it holds; on it, the blocks share the column but keep their separators.
 const BUILD_TYPES = ['Story', 'Task', 'no type']
 const FIX_TYPES   = ['Bug', 'Defect']
-function cardBlocks(r, kinds) {
+// which repos the cards in this column sit in, as a small pie
+function repoPie(list, what) {
+  if (!list.length) return '<span class="pie empty"></span>'
+  const counts = {}
+  for (const c of list) counts[c.repo] = (counts[c.repo] || 0) + 1
+  const parts = Object.entries(counts).sort((a, b) => b[1] - a[1])
+  let acc = 0
+  const stops = parts.map(([k, n]) => {
+    const from = acc / list.length * 360
+    acc += n
+    return (REPO_COLOR[k] || '#8b949e') + ' ' + from.toFixed(2) + 'deg '
+      + (acc / list.length * 360).toFixed(2) + 'deg'
+  }).join(',')
+  const tip = '<b>' + esc(what) + ' &middot; ' + list.length + ' cards</b><br>'
+    + parts.map(([k, n]) => '<i class="dot" style="background:' + (REPO_COLOR[k] || '#8b949e') + '"></i>'
+        + esc(REPO_SHORT[k] || k) + ' &middot; ' + n + ' &middot; '
+        + Math.round(n / list.length * 100) + '%').join('<br>')
+  return '<span class="pie" style="background:conic-gradient(' + stops + ')"'
+    + ' data-tip="' + esc(tip) + '"></span>'
+}
+
+function cardBlocks(r, kinds, what) {
   const list = r.cards.filter(c => kinds.includes(c.type))
     .sort((a, b) => kinds.indexOf(a.type) - kinds.indexOf(b.type) || a.number - b.number)
   const base = 150
   const w = full ? base : Math.max(6, Math.round(base * list.length / Math.max(1, maxKind)))
-  if (!list.length) return '<span class="cards none" style="width:' + w + 'px"></span>'
   const counts = {}
   for (const c of list) counts[c.type] = (counts[c.type] || 0) + 1
   const head = Object.entries(counts).map(([t, n]) => n + ' ' + esc(t)).join(' &middot; ')
-  return '<span class="cards" style="width:' + w + 'px">' + list.map(c => {
-    const tip = '<b>' + head + '</b><br>' + esc(REPO_SHORT[c.repo] || c.repo) + ' #' + c.number
-      + ' &middot; ' + esc(c.type) + '<br>' + esc(STATUS_SHORT[c.status] || c.status)
-    return '<i class="' + (c.type === 'no type' ? 'notype' : '') + '" style="background:'
-      + (TYPE_COLOR[c.type] || TYPE_COLOR['no type']) + '" data-tip="' + esc(tip) + '"></i>'
-  }).join('') + '</span>'
+  const bar = !list.length ? '<span class="cards none" style="width:' + w + 'px"></span>'
+    : '<span class="cards" style="width:' + w + 'px">' + list.map(c => {
+        const tip = '<b>' + head + '</b><br>' + esc(REPO_SHORT[c.repo] || c.repo) + ' #' + c.number
+          + ' &middot; ' + esc(c.type) + '<br>' + esc(STATUS_SHORT[c.status] || c.status)
+        return '<i class="' + (c.type === 'no type' ? 'notype' : '') + '" style="background:'
+          + (TYPE_COLOR[c.type] || TYPE_COLOR['no type']) + '" data-tip="' + esc(tip) + '"></i>'
+      }).join('') + '</span>'
+  return '<span class="cellrow">' + repoPie(list, what) + bar + '</span>'
 }
 function progressCell(r) {
   const behind = r.timePct > r.cardPct + 10 && r.state !== 'closed'
@@ -986,9 +1014,9 @@ const COLS = [
     cell:r => '<span class="pill ' + r.state + '">' + STATE_LABEL[r.state] + '</span>',
     val:r => r.state },
   { k:'prog',  h:'Progress', cell:progressCell, val:r => r.cardPct - r.timePct },
-  { k:'build', h:'Story & Task', cell:r => cardBlocks(r, BUILD_TYPES),
+  { k:'build', h:'Story & Task', cell:r => cardBlocks(r, BUILD_TYPES, 'Story & Task'),
     val:r => r.cards.filter(c => BUILD_TYPES.includes(c.type)).length },
-  { k:'fix',   h:'Bug & Defect', cell:r => cardBlocks(r, FIX_TYPES),
+  { k:'fix',   h:'Bug & Defect', cell:r => cardBlocks(r, FIX_TYPES, 'Bug & Defect'),
     val:r => r.cards.filter(c => FIX_TYPES.includes(c.type)).length },
   { k:'devs',  h:'Devs',     cell:r => peopleBar(r.devs), val:r => r.devs.length },
   { k:'qas',   h:'QAs',      cell:r => peopleBar(r.qas),  val:r => r.qas.length },
@@ -1120,15 +1148,14 @@ async function load(force) {
   } finally { loading = false }
 }
 
-// block fill = card type, block underline = repo; the full legend lives in a hover tooltip
+// block fill = board status, block underline = card type; the legend lives in a hover tooltip
 $('legend').dataset.tip = '<span class="keys">'
-  + '<span class="key head">block = one card, colour = type</span>'
-  + ['Story','Task','Bug','Defect'].map(t =>
-    '<span class="key"><i style="background:' + TYPE_COLOR[t] + '"></i>' + t + '</span>').join('')
-  + '<span class="key head">underline = repo</span>'
-  + Object.keys(REPO_COLOR).map(k =>
-    '<span class="key"><i class="ul" style="background:' + REPO_COLOR[k] + '"></i>'
-    + REPO_SHORT[k] + '</span>').join('')
+  + '<span class="key head">block = one card, fill = status</span>'
+  + BOARD.map(b => '<span class="key"><i style="background:' + b.c + '"></i>' + b.short + '</span>').join('')
+  + '<span class="key head">underline = type</span>'
+  + ['Story','Task','Bug','Defect','no type'].map(t =>
+    '<span class="key"><i class="ul" style="background:' + TYPE_COLOR[t] + '"></i>' + t + '</span>').join('')
+  + '<span class="key head">release</span>'
   + '<span class="key"><i style="background:#dde2e7"></i>closed</span>'
   + '<span class="key"><i style="background:#fff;border:2px solid #e16f24"></i>slipped</span>'
   + '</span>'
