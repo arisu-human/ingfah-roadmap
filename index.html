@@ -39,6 +39,15 @@
   input { font:inherit; color:var(--ink); padding:8px 12px; border:1px solid var(--hairline);
           border-radius:6px; width:340px; background:var(--canvas); }
   input:focus { outline:2px solid var(--focus); outline-offset:-1px; }
+  input.dmy { width:104px; font-variant-numeric:tabular-nums; text-align:center; }
+  input.bad { outline:2px solid #cf222e; outline-offset:-1px; }
+  /* state pills */
+  .pill { display:inline-block; padding:2px 10px; border-radius:9999px; font-size:11px;
+          font-weight:500; letter-spacing:.1px; white-space:nowrap; }
+  .pill.running  { background:#ddf4ff; color:#0a5dc2; }
+  .pill.slipped  { background:#fff1e5; color:#bc4c00; }
+  .pill.upcoming { background:#fff8c5; color:#7d4e00; }
+  .pill.closed   { background:#eaeef2; color:#57606a; }
   .key { display:inline-flex; align-items:center; gap:6px; font-size:12px; color:var(--muted);
          white-space:nowrap; }
   .key i { width:11px; height:11px; border-radius:3px; display:block; flex:0 0 auto; }
@@ -76,17 +85,31 @@
               border-radius:0 4px 4px 0; }
   /* the whole chart is a hand tool, apart from the due date handle */
   .vis-panel.vis-center, .vis-panel.vis-center * { cursor:grab; }
-  /* the sprint pane floats ON TOP of the bars, so it is a real overlay rather than a vis
-     background item: those render behind everything and could not frost what they cover */
+  /* The sprint pane floats ON TOP of the bars, so it is a real overlay rather than a vis
+     background item: those render behind everything and could not refract what they cover.
+     Liquid glass = heavy blur + saturation lift, a mint body tint, a bright specular rim on
+     the top edge, and a soft drop shadow so the slab reads as lifted off the chart. */
   #sprint { position:absolute; top:0; bottom:0; z-index:6; pointer-events:none; display:none;
-            border-radius:12px; border:1px solid rgba(24,29,38,.22);
-            background:rgba(255,255,255,.30); backdrop-filter:blur(1.5px) saturate(1.25);
-            -webkit-backdrop-filter:blur(1.5px) saturate(1.25);
-            box-shadow:0 1px 3px rgba(24,29,38,.10), inset 0 1px 0 rgba(255,255,255,.65); }
-  #sprint b { position:absolute; top:4px; left:50%; transform:translateX(-50%);
+            border-radius:16px; overflow:hidden;
+            background:linear-gradient(170deg, rgba(255,255,255,.60) 0%,
+                       rgba(168,216,196,.30) 38%, rgba(168,216,196,.46) 100%);
+            backdrop-filter:blur(4px) saturate(185%);
+            -webkit-backdrop-filter:blur(4px) saturate(185%);
+            border:1px solid rgba(255,255,255,.55);
+            box-shadow:0 10px 26px rgba(10,46,14,.16), 0 2px 6px rgba(10,46,14,.10),
+                       inset 0 1px 1px rgba(255,255,255,.95),
+                       inset 0 -14px 22px rgba(168,216,196,.30),
+                       inset 1px 0 0 rgba(255,255,255,.45),
+                       inset -1px 0 0 rgba(255,255,255,.45); }
+  /* the specular sheen that makes it read as glass rather than as a tinted panel */
+  #sprint::before { content:''; position:absolute; inset:0 0 auto 0; height:42%;
+            background:linear-gradient(180deg, rgba(255,255,255,.55), rgba(255,255,255,0));
+            border-radius:16px 16px 60% 60% / 16px 16px 22px 22px; }
+  #sprint b { position:absolute; top:5px; left:50%; transform:translateX(-50%);
               font-size:10px; font-weight:500; letter-spacing:.4px; text-transform:uppercase;
-              color:var(--ink); background:rgba(255,255,255,.8); border-radius:12px;
-              padding:1px 8px; white-space:nowrap; }
+              color:#0a2e0e; background:rgba(255,255,255,.72); border-radius:12px;
+              padding:2px 10px; white-space:nowrap;
+              box-shadow:0 1px 2px rgba(10,46,14,.12), inset 0 1px 0 rgba(255,255,255,.9); }
   #tl.grabbing .vis-panel.vis-center, #tl.grabbing .vis-panel.vis-center * { cursor:grabbing !important; }
   #tl.edge .vis-panel.vis-center, #tl.edge .vis-panel.vis-center * { cursor:ew-resize !important; }
   .vis-panel.vis-left { width:280px; }
@@ -115,10 +138,15 @@
   .toolrow { display:flex; align-items:center; flex-wrap:wrap; gap:10px 14px; margin-bottom:14px; }
   #tableBox { max-height:calc(100vh - 180px); overflow:auto; }
   table { border-collapse:collapse; width:100%; font-size:13px; }
-  th, td { text-align:left; padding:5px 14px; border-bottom:1px solid var(--line); white-space:nowrap;
+  th, td { text-align:left; padding:5px 10px; border-bottom:1px solid var(--line); white-space:nowrap;
            vertical-align:middle; line-height:1.3; }
   th:first-child, td:first-child { padding-left:4px; }
   th { padding-top:8px; padding-bottom:8px; }
+  /* the three columns Eddie reads most get the room; the rest give it up */
+  .col-prog, .col-build, .col-fix { padding-left:14px; padding-right:14px; }
+  .col-state, .col-devs, .col-qas { padding-left:8px; padding-right:8px; }
+  .dates { font-variant-numeric:tabular-nums; }
+  .dates .late { color:var(--late); font-weight:500; }
   th { color:var(--muted); font-weight:500; cursor:pointer; user-select:none; position:sticky; top:0;
        background:var(--card); z-index:2; }
   th:hover { color:var(--ink); }
@@ -197,8 +225,9 @@
     <span class="chip" id="help">?</span>
     <button id="sprintBtn" title="Highlight the current sprint on the chart">Sprint</button>
     <span id="sprintBox" hidden>
-      <input id="sprintFrom" type="date" style="width:auto">
-      <input id="sprintTo" type="date" style="width:auto">
+      <input id="sprintFrom" type="text" inputmode="numeric" placeholder="dd/mm/yyyy" class="dmy">
+      <span class="muted">to</span>
+      <input id="sprintTo" type="text" inputmode="numeric" placeholder="dd/mm/yyyy" class="dmy">
       <button id="sprintSave" class="primary">Set</button>
       <button id="sprintClear">Clear</button>
     </span>
@@ -221,6 +250,7 @@
   <div class="toolrow">
     <input id="search" type="search" placeholder="Search milestone..." style="width:280px">
     <span class="muted" id="searchCount"></span>
+    <button id="hideClosed"></button>
     <button id="full"></button>
     <span id="statusKey" class="keys"></span>
   </div>
@@ -721,20 +751,47 @@ function saveSprint(v) {
   if (v) localStorage.setItem('sprint', JSON.stringify(v)); else localStorage.removeItem('sprint')
   placeSprint()
 }
+// dd/mm/yyyy in, ISO out. Month and year are optional and fall back to this month and this
+// year, so a sprint inside the current month only needs the day typed.
+function parseDMY(s) {
+  const m = String(s).trim().match(/^(\d{1,2})(?:\s*[\/\-. ]\s*(\d{1,2})(?:\s*[\/\-. ]\s*(\d{2,4}))?)?$/)
+  if (!m) return null
+  const now = new Date()
+  const d = +m[1]
+  const mo = m[2] ? +m[2] : now.getMonth() + 1
+  let y = m[3] ? +m[3] : now.getFullYear()
+  if (y < 100) y += 2000
+  if (mo < 1 || mo > 12 || d < 1 || d > 31) return null
+  const iso = y + '-' + String(mo).padStart(2, '0') + '-' + String(d).padStart(2, '0')
+  const chk = new Date(iso + 'T00:00:00Z')
+  return isNaN(chk) || chk.getUTCDate() !== d ? null : iso     // rejects 31/02
+}
+const toDMY = iso => iso ? iso.slice(8) + '/' + iso.slice(5,7) + '/' + iso.slice(0,4) : ''
+
 $('sprintBtn').onclick = () => {
   const on = $('sprintBox').hidden
   $('sprintBox').hidden = !on
-  if (on && sprint) { $('sprintFrom').value = sprint.from; $('sprintTo').value = sprint.to }
+  if (!on) return
+  const today = new Date().toISOString().slice(0,10)
+  // pre-filled with today and a two week sprint, so usually only the day needs changing
+  $('sprintFrom').value = toDMY(sprint ? sprint.from : today)
+  $('sprintTo').value   = toDMY(sprint ? sprint.to : plus(today, 13))
+  $('sprintFrom').focus(); $('sprintFrom').select()
 }
 $('sprintSave').onclick = () => {
-  const from = $('sprintFrom').value, to = $('sprintTo').value
+  const from = parseDMY($('sprintFrom').value), to = parseDMY($('sprintTo').value)
+  $('sprintFrom').classList.toggle('bad', !from)
+  $('sprintTo').classList.toggle('bad', !to || (!!from && to < from))
   if (!from || !to || to < from) return
   saveSprint({ from, to })
   $('sprintBox').hidden = true
 }
+$('sprintTo').onkeydown = $('sprintFrom').onkeydown = e => {
+  if (e.key === 'Enter') $('sprintSave').click()
+  if (e.key === 'Escape') $('sprintBox').hidden = true
+}
 $('sprintClear').onclick = () => {
   saveSprint(null)
-  $('sprintFrom').value = ''; $('sprintTo').value = ''
   $('sprintBox').hidden = true
 }
 
@@ -864,7 +921,7 @@ const hue = s => { let h = 0; for (const c of s) h = (h * 31 + c.charCodeAt(0)) 
 function peopleBar(list) {
   if (!list.length) return '<span class="muted">-</span>'
   const total = list.reduce((s, p) => s + p.n, 0)
-  return '<span class="ratio" style="width:' + widthOf(170) + '">' + list.map(p => {
+  return '<span class="ratio" style="width:' + widthOf(120) + '">' + list.map(p => {
     const w = p.n / total * 100
     const tip = '<img src="' + esc(p.avatar) + '&s=32">' + esc(p.login)
       + ' &middot; ' + p.n + ' cards &middot; ' + Math.round(w) + '%'
@@ -880,7 +937,7 @@ const FIX_TYPES   = ['Bug', 'Defect']
 function cardBlocks(r, kinds) {
   const list = r.cards.filter(c => kinds.includes(c.type))
     .sort((a, b) => kinds.indexOf(a.type) - kinds.indexOf(b.type) || a.number - b.number)
-  const base = 96
+  const base = 150
   const w = full ? base : Math.max(6, Math.round(base * list.length / Math.max(1, maxKind)))
   if (!list.length) return '<span class="cards none" style="width:' + w + 'px"></span>'
   const counts = {}
@@ -905,7 +962,7 @@ function progressCell(r) {
   const timeTip = '<b>Time</b> ' + Math.round(r.timePct) + '% gone &middot; '
     + pretty(r.start) + ' to ' + pretty(r.due)
     + (behind ? '<br>time is ahead of the cards' : '')
-  return '<div class="prog" style="width:' + widthOf(150) + '">'
+  return '<div class="prog" style="width:' + widthOf(210) + '">'
     + '<span class="pbar">' + segs + '</span>'
     + '<span class="pbar" data-tip="' + esc(timeTip) + '">'
     +   '<i class="time' + (behind ? ' behind' : '') + '" style="width:' + r.timePct.toFixed(1) + '%"></i></span>'
@@ -913,11 +970,21 @@ function progressCell(r) {
 }
 
 /* ---- table ---- */
+// start → due on one line, with the real finish only called out when it ran past the due date
+function datesCell(r) {
+  const late = r.late && r.lastDone
+  return '<span class="dates">' + pretty(r.start)
+    + (r.startedAt ? '' : '<span class="muted">*</span>')
+    + ' <span class="muted">&rarr;</span> ' + pretty(r.due)
+    + (late ? ' <b class="late">done ' + pretty(r.lastDone) + '</b>' : '') + '</span>'
+}
 const COLS = [
   { k:'name',  h:'Milestone', cell:r => '<a class="rel" target="_blank" rel="noopener" href="'
       + PROJECT_SLICE + encodeURIComponent(r.title) + '">' + esc(r.name) + '</a>',
     val:r => r.name.toLowerCase() },
-  { k:'state', h:'State',    cell:r => STATE_LABEL[r.state], val:r => r.state },
+  { k:'state', h:'State',
+    cell:r => '<span class="pill ' + r.state + '">' + STATE_LABEL[r.state] + '</span>',
+    val:r => r.state },
   { k:'prog',  h:'Progress', cell:progressCell, val:r => r.cardPct - r.timePct },
   { k:'build', h:'Story & Task', cell:r => cardBlocks(r, BUILD_TYPES),
     val:r => r.cards.filter(c => BUILD_TYPES.includes(c.type)).length },
@@ -925,18 +992,17 @@ const COLS = [
     val:r => r.cards.filter(c => FIX_TYPES.includes(c.type)).length },
   { k:'devs',  h:'Devs',     cell:r => peopleBar(r.devs), val:r => r.devs.length },
   { k:'qas',   h:'QAs',      cell:r => peopleBar(r.qas),  val:r => r.qas.length },
-  { k:'start', h:'Started',  cell:r => pretty(r.start) + (r.startedAt ? '' : ' <span class="muted">(not started)</span>'),
-    val:r => r.start },
-  { k:'due',   h:'Due',      cell:r => pretty(r.due), val:r => r.due },
-  { k:'last',  h:'Last Done',cell:r => r.lastDone ? pretty(r.lastDone) : '-', val:r => r.lastDone || '' }
+  { k:'dates', h:'Start &rarr; Due', cell:datesCell, val:r => r.due }
 ]
-let rowsCache = [], sortKey = 'due', sortDir = 1
+let rowsCache = [], sortKey = 'dates', sortDir = 1
+let hideClosed = localStorage.getItem('hideClosed') === '1'
 
 function drawTable() {
-  const col = COLS.find(c => c.k === sortKey)
+  const col = COLS.find(c => c.k === sortKey) || COLS[0]
   const q = ($('search').value || '').trim().toLowerCase()
-  const kept = rowsCache.filter(inWindow).filter(r => !q || r.name.toLowerCase().includes(q))
-  $('searchCount').textContent = q ? kept.length + ' of ' + rowsCache.filter(inWindow).length : ''
+  const base = rowsCache.filter(inWindow).filter(r => !hideClosed || r.state !== 'closed')
+  const kept = base.filter(r => !q || r.name.toLowerCase().includes(q))
+  $('searchCount').textContent = q ? kept.length + ' of ' + base.length : ''
   const sorted = kept.sort((a, b) => {
     const x = col.val(a), y = col.val(b)
     return (x < y ? -1 : x > y ? 1 : 0) * sortDir
@@ -954,7 +1020,7 @@ function drawTable() {
   const body = sorted.map(r => {
     scaleRow = r.total                     // every bar in this row is sized by its card count
     return '<tr class="' + (r.state === 'closed' ? 'closed' : '') + '">'
-      + COLS.map(c => '<td' + (c.k === 'last' && r.late ? ' class="late"' : '') + '>' + c.cell(r) + '</td>').join('')
+      + COLS.map(c => '<td class="col-' + c.k + '">' + c.cell(r) + '</td>').join('')
       + '</tr>'
   }).join('')
   $('table').innerHTML = head + body
@@ -1086,6 +1152,17 @@ $('full').onclick = () => {
   paintFull(); drawTable()
 }
 paintFull()
+
+function paintHide() {
+  $('hideClosed').textContent = (hideClosed ? '☑' : '☐') + ' Hide closed'
+  $('hideClosed').title = 'Closed releases stay on the chart either way'
+}
+$('hideClosed').onclick = () => {
+  hideClosed = !hideClosed
+  localStorage.setItem('hideClosed', hideClosed ? '1' : '0')
+  paintHide(); drawTable()
+}
+paintHide()
 
 $('statusKey').innerHTML = BOARD.map(b =>
   '<span class="key"><i style="background:' + b.c + '"></i>' + b.short + '</span>').join('')
