@@ -4,6 +4,10 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>ingfah release roadmap</title>
+<!-- Favicon is inline so the page stays one file and costs no extra request: three gantt
+     bars in ingfah teal, the shortest one Done-green, on the near-black ink square. -->
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%23181d26'/%3E%3Crect x='5' y='8' width='19' height='4.5' rx='2.25' fill='%2300BBA7'/%3E%3Crect x='9' y='15' width='18' height='4.5' rx='2.25' fill='%2300BBA7' opacity='.62'/%3E%3Crect x='5' y='22' width='11' height='4.5' rx='2.25' fill='%234ac26b'/%3E%3C/svg%3E">
+<meta name="theme-color" content="#00BBA7">
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/vis-timeline@7.7.3/styles/vis-timeline-graph2d.min.css">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap">
@@ -90,29 +94,33 @@
      background item: those render behind everything and could not refract what they cover.
      Liquid glass = heavy blur + saturation lift, a mint body tint, a bright specular rim on
      the top edge, and a soft drop shadow so the slab reads as lifted off the chart. */
-  /* Clear glass: almost no body tint, so the bars underneath stay fully readable. The glass
-     reads from its edges instead - a bright rim, a thin mint inner glow, and a soft shadow. */
+  /* Clear glass in ingfah teal (#00BBA7, the TEAL token in zai-frontend). Almost no body
+     tint, so the bars underneath stay readable; the glass reads from its edges instead -
+     a bright rim, a thin teal inner glow, and a shadow hugging the border that lifts it. */
   #sprint { position:absolute; top:0; bottom:0; z-index:6; pointer-events:none; display:none;
             border-radius:16px; overflow:hidden;
             background:linear-gradient(170deg, rgba(255,255,255,.16) 0%,
-                       rgba(168,216,196,.07) 40%, rgba(168,216,196,.15) 100%);
-            backdrop-filter:blur(.5px) saturate(150%) brightness(1.03);
-            -webkit-backdrop-filter:blur(.5px) saturate(150%) brightness(1.03);
-            border:1px solid rgba(168,216,196,.75);
-            box-shadow:0 8px 22px rgba(10,46,14,.13), 0 1px 3px rgba(10,46,14,.08),
+                       rgba(0,187,167,.06) 40%, rgba(0,187,167,.15) 100%);
+            backdrop-filter:blur(.5px) saturate(155%) brightness(1.03);
+            -webkit-backdrop-filter:blur(.5px) saturate(155%) brightness(1.03);
+            border:1px solid rgba(0,187,167,.62);
+            box-shadow:0 2px 5px rgba(0,90,80,.20), 0 6px 14px rgba(0,90,80,.16),
+                       0 14px 30px rgba(0,90,80,.10),
                        inset 0 1px 1px rgba(255,255,255,.9),
-                       inset 0 0 14px rgba(168,216,196,.28),
-                       inset 1px 0 0 rgba(255,255,255,.5),
-                       inset -1px 0 0 rgba(255,255,255,.5); }
+                       inset 0 0 16px rgba(0,187,167,.26),
+                       inset 0 0 0 1px rgba(255,255,255,.35); }
   /* a thin specular sheen along the top edge only, so it catches light without milking over */
   #sprint::before { content:''; position:absolute; inset:0 0 auto 0; height:22%;
             background:linear-gradient(180deg, rgba(255,255,255,.42), rgba(255,255,255,0));
             border-radius:16px 16px 60% 60% / 16px 16px 14px 14px; }
-  #sprint b { position:absolute; top:5px; left:50%; transform:translateX(-50%);
+  /* a soft dark halo just outside the rim, so the border itself casts the shadow */
+  #sprint::after { content:''; position:absolute; inset:-1px; border-radius:17px;
+            pointer-events:none; box-shadow:0 0 8px 1px rgba(0,90,80,.18); }
+  #sprint b { position:absolute; top:5px; left:50%; transform:translateX(-50%); z-index:1;
               font-size:10px; font-weight:500; letter-spacing:.4px; text-transform:uppercase;
-              color:#0a2e0e; background:rgba(255,255,255,.72); border-radius:12px;
+              color:#006b60; background:rgba(255,255,255,.80); border-radius:12px;
               padding:2px 10px; white-space:nowrap;
-              box-shadow:0 1px 2px rgba(10,46,14,.12), inset 0 1px 0 rgba(255,255,255,.9); }
+              box-shadow:0 1px 3px rgba(0,90,80,.20), inset 0 1px 0 rgba(255,255,255,.9); }
   #tl.grabbing .vis-panel.vis-center, #tl.grabbing .vis-panel.vis-center * { cursor:grabbing !important; }
   #tl.edge .vis-panel.vis-center, #tl.edge .vis-panel.vis-center * { cursor:ew-resize !important; }
   .vis-panel.vis-left { width:280px; }
