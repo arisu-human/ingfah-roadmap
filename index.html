@@ -45,7 +45,13 @@
   /* the chips are joined with no whitespace between them, so the gap has to come from here */
   .keys { display:inline-flex; align-items:center; flex-wrap:wrap; gap:8px 16px; }
   .key i.ul { height:4px; width:14px; border-radius:2px; }
-  .key.sub { color:#8c959f; font-style:italic; margin-left:2px; }
+  /* quiet hover chips: the legend and the how-to live in a tooltip, not in the toolbar */
+  .chip { font-size:12px; color:var(--muted); border:1px solid var(--hairline); border-radius:12px;
+          padding:3px 10px; cursor:default; }
+  .chip:hover { color:var(--ink); background:var(--surface-soft); }
+  #tip .keys { display:grid; gap:6px; }
+  #tip .key { color:#fff; }
+  #tip .key.head { color:#c3c8cf; margin-top:4px; }
   .sep { flex:1 }
 
   /* ---- timeline ---- */
@@ -161,19 +167,16 @@
 
 <div class="card flush">
   <div class="bar">
-    <button id="zoomOut">&minus;</button>
-    <button id="zoomIn">+</button>
-    <button id="today">Back to today</button>
-    <button id="fit">Today &rarr; end</button>
-    <button id="fitAllTime">Fit everything</button>
-    <span id="legend" class="keys"></span>
-    <span class="muted" style="margin-left:4px">drag anywhere to pan &middot; drag the dark right edge to move the due date</span>
+    <button id="zoomOut" title="Zoom out">&minus;</button>
+    <button id="zoomIn" title="Zoom in">+</button>
+    <button id="fit" title="A week back, out to the last future release">Today</button>
+    <button id="fitAllTime" title="Fit every release on screen">All</button>
+    <span class="chip" id="legend">Legend</span>
+    <span class="chip" id="help">?</span>
     <span class="key" id="dateNow" style="font-weight:500;color:var(--ink)"></span>
     <span class="sep"></span>
-    <span class="muted" id="windowLabel"></span>
-    <button id="older">Show older</button>
-    <button id="mmdCopy">Copy Mermaid</button>
-    <button id="mmdSave">Download .mmd</button>
+    <button id="older" title="Load releases closed further back">Older</button>
+    <button id="mmdCopy" title="Copy the chart as Mermaid, for a GitHub issue">Mermaid</button>
   </div>
   <div class="bar ask" id="ask">
     <span id="askText"></span>
@@ -639,7 +642,7 @@ function drawTimeline(rows) {
   // open on the whole road ahead: a week before today, out to the last future release
   if (firstDraw) { firstDraw = false; showFuture(shown) }
   tuneAxis()
-  $('windowLabel').textContent = 'past: last ' + windowDays + ' days · future: all'
+  $('older').title = 'Showing releases closed in the last ' + windowDays + ' days. Load further back.'
 }
 
 // Every day gets its own grid line while there is room to print the number. Only when the
@@ -878,7 +881,6 @@ document.addEventListener('mousemove', e => {
 /* ---- buttons ---- */
 $('zoomIn').onclick  = () => timeline && timeline.zoomIn(0.4)
 $('zoomOut').onclick = () => timeline && timeline.zoomOut(0.4)
-$('today').onclick   = () => timeline && timeline.moveTo(new Date())
 $('fit').onclick     = () => showFuture()
 $('fitAllTime').onclick = () => timeline && timeline.fit()
 $('older').onclick = () => {
@@ -891,13 +893,7 @@ $('older').onclick = () => {
 $('mmdCopy').onclick = async () => {
   await navigator.clipboard.writeText(toMermaid(rowsCache))
   $('mmdCopy').textContent = 'Copied'
-  setTimeout(() => $('mmdCopy').textContent = 'Copy Mermaid', 1500)
-}
-$('mmdSave').onclick = () => {
-  const blob = new Blob([toMermaid(rowsCache)], { type:'text/markdown' })
-  const a = document.createElement('a')
-  a.href = URL.createObjectURL(blob); a.download = 'ingfah-roadmap.mmd'; a.click()
-  URL.revokeObjectURL(a.href)
+  setTimeout(() => $('mmdCopy').textContent = 'Mermaid', 1500)
 }
 
 /* ---- load ---- */
@@ -919,13 +915,15 @@ function paint(when) {
   const n = s => shown.filter(r => r.state === s).length
   const devs = new Set(shown.flatMap(r => r.devs.map(p => p.login))).size
   const qas  = new Set(shown.flatMap(r => r.qas.map(p => p.login))).size
-  $('stamp').textContent = 'updated ' + new Date(when).toLocaleTimeString()
-    + ' · ' + shown.length + ' releases · ' + devs + ' devs · ' + qas + ' QAs'
+  // short line; the detail lives on hover. Warnings stay visible: silence would read as complete.
+  $('stamp').textContent = new Date(when).toLocaleTimeString([], { hour:'2-digit', minute:'2-digit' })
+    + ' · ' + shown.length + ' releases'
     + (n('slipped') ? ' · ' + n('slipped') + ' slipped' : '')
-    + (rate ? ' · API budget ' + rate.remaining + '/5000' : '')
     + (truncated.length ? ' · card count is short on ' + truncated.join(', ') : '')
-    + (capped.length ? ' · more releases exist behind ' + capped.join(', ')
-        + ', press Show older' : '')
+    + (capped.length ? ' · more releases exist behind ' + capped.join(', ') + ', press Older' : '')
+  $('stamp').dataset.tip = 'updated ' + new Date(when).toLocaleTimeString()
+    + '<br>' + devs + ' devs &middot; ' + qas + ' QAs'
+    + (rate ? '<br>API budget ' + rate.remaining + '/5000' : '')
 }
 
 let loading = false
@@ -958,16 +956,25 @@ async function load(force) {
   } finally { loading = false }
 }
 
-// block fill = card type, block underline = repo
-$('legend').innerHTML =
-  ['Story','Task','Bug','Defect'].map(t =>
+// block fill = card type, block underline = repo; the full legend lives in a hover tooltip
+$('legend').dataset.tip = '<span class="keys">'
+  + '<span class="key head">block = one card, colour = type</span>'
+  + ['Story','Task','Bug','Defect'].map(t =>
     '<span class="key"><i style="background:' + TYPE_COLOR[t] + '"></i>' + t + '</span>').join('')
-  + '<span class="key sub">underline</span>'
+  + '<span class="key head">underline = repo</span>'
   + Object.keys(REPO_COLOR).map(k =>
     '<span class="key"><i class="ul" style="background:' + REPO_COLOR[k] + '"></i>'
     + REPO_SHORT[k] + '</span>').join('')
   + '<span class="key"><i style="background:#dde2e7"></i>closed</span>'
   + '<span class="key"><i style="background:#fff;border:2px solid #e16f24"></i>slipped</span>'
+  + '</span>'
+$('help').dataset.tip = '<span class="keys">'
+  + '<span class="key">drag &middot; pan around</span>'
+  + '<span class="key">dark right edge &middot; drag to move the due date</span>'
+  + '<span class="key">wheel &middot; rows &middot; shift+wheel &middot; timeline</span>'
+  + '<span class="key">ctrl/&#8984;+wheel &middot; zoom</span>'
+  + '<span class="key">double click a bar &middot; open the board</span>'
+  + '</span>'
 function paintFull() {
   $('full').textContent = (full ? '☑' : '☐') + ' Show to 100%'
   $('full').title = full
