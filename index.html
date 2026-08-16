@@ -39,7 +39,8 @@
   input { font:inherit; color:var(--ink); padding:8px 12px; border:1px solid var(--hairline);
           border-radius:6px; width:340px; background:var(--canvas); }
   input:focus { outline:2px solid var(--focus); outline-offset:-1px; }
-  input.dmy { width:104px; font-variant-numeric:tabular-nums; text-align:center; }
+  input.dmy { width:132px; padding-left:8px; padding-right:8px;
+              font-variant-numeric:tabular-nums; text-align:center; }
   input.bad { outline:2px solid #cf222e; outline-offset:-1px; }
   /* state pills */
   .pill { display:inline-block; padding:2px 10px; border-radius:9999px; font-size:11px;
@@ -89,22 +90,24 @@
      background item: those render behind everything and could not refract what they cover.
      Liquid glass = heavy blur + saturation lift, a mint body tint, a bright specular rim on
      the top edge, and a soft drop shadow so the slab reads as lifted off the chart. */
+  /* Clear glass: almost no body tint, so the bars underneath stay fully readable. The glass
+     reads from its edges instead - a bright rim, a thin mint inner glow, and a soft shadow. */
   #sprint { position:absolute; top:0; bottom:0; z-index:6; pointer-events:none; display:none;
             border-radius:16px; overflow:hidden;
-            background:linear-gradient(170deg, rgba(255,255,255,.60) 0%,
-                       rgba(168,216,196,.30) 38%, rgba(168,216,196,.46) 100%);
-            backdrop-filter:blur(4px) saturate(185%);
-            -webkit-backdrop-filter:blur(4px) saturate(185%);
-            border:1px solid rgba(255,255,255,.55);
-            box-shadow:0 10px 26px rgba(10,46,14,.16), 0 2px 6px rgba(10,46,14,.10),
-                       inset 0 1px 1px rgba(255,255,255,.95),
-                       inset 0 -14px 22px rgba(168,216,196,.30),
-                       inset 1px 0 0 rgba(255,255,255,.45),
-                       inset -1px 0 0 rgba(255,255,255,.45); }
-  /* the specular sheen that makes it read as glass rather than as a tinted panel */
-  #sprint::before { content:''; position:absolute; inset:0 0 auto 0; height:42%;
-            background:linear-gradient(180deg, rgba(255,255,255,.55), rgba(255,255,255,0));
-            border-radius:16px 16px 60% 60% / 16px 16px 22px 22px; }
+            background:linear-gradient(170deg, rgba(255,255,255,.16) 0%,
+                       rgba(168,216,196,.07) 40%, rgba(168,216,196,.15) 100%);
+            backdrop-filter:blur(.5px) saturate(150%) brightness(1.03);
+            -webkit-backdrop-filter:blur(.5px) saturate(150%) brightness(1.03);
+            border:1px solid rgba(168,216,196,.75);
+            box-shadow:0 8px 22px rgba(10,46,14,.13), 0 1px 3px rgba(10,46,14,.08),
+                       inset 0 1px 1px rgba(255,255,255,.9),
+                       inset 0 0 14px rgba(168,216,196,.28),
+                       inset 1px 0 0 rgba(255,255,255,.5),
+                       inset -1px 0 0 rgba(255,255,255,.5); }
+  /* a thin specular sheen along the top edge only, so it catches light without milking over */
+  #sprint::before { content:''; position:absolute; inset:0 0 auto 0; height:22%;
+            background:linear-gradient(180deg, rgba(255,255,255,.42), rgba(255,255,255,0));
+            border-radius:16px 16px 60% 60% / 16px 16px 14px 14px; }
   #sprint b { position:absolute; top:5px; left:50%; transform:translateX(-50%);
               font-size:10px; font-weight:500; letter-spacing:.4px; text-transform:uppercase;
               color:#0a2e0e; background:rgba(255,255,255,.72); border-radius:12px;
@@ -171,7 +174,7 @@
   .cards i:last-child { border-right:0; }
   .cards.none { border-style:dashed; }
   .cellrow { display:flex; align-items:center; gap:8px; }
-  .pie { width:17px; height:17px; border-radius:50%; flex:0 0 auto; display:block;
+  .pie { width:26px; height:26px; border-radius:50%; flex:0 0 auto; display:block;
          box-shadow:inset 0 0 0 1px rgba(255,255,255,.7), 0 0 0 1px var(--hairline); }
   .pie.empty { background:var(--surface-soft); box-shadow:0 0 0 1px var(--hairline); }
   #tip .dot { width:9px; height:9px; border-radius:50%; display:inline-block; margin-right:6px; }
@@ -291,6 +294,10 @@ const BOARD = [
 ]
 const STATUS_COLOR = {}, STATUS_SHORT = {}
 for (const b of BOARD) { STATUS_COLOR[b.s] = b.c; STATUS_SHORT[b.s] = b.short }
+// Reading order for every bar: Done first. A bar fills from the left as work finishes, the
+// way a loading bar does, so the left hand end always means "already delivered".
+const DONE_FIRST = [...BOARD].reverse()
+const DONE_FIRST_KEYS = DONE_FIRST.map(b => b.s)
 
 // one colour per repo, so a bar shows at a glance which side the work sits on
 const REPO_COLOR = { 'zai-backend':'#1f6feb', 'zai-frontend':'#2da44e', 'zai-bo-frontend':'#8250df',
@@ -470,10 +477,8 @@ function build(all) {
     const all2 = [...people.values()].sort((a,b) => b.n - a.n)
     const done = statuses[STATUS_DONE] || 0
     const ready = statuses[STATUS_READY] || 0
-    // order the blocks by how far the card has moved, so a bar reads Backlog on the left to
-    // Done on the right and the finished share is one solid run
-    const order = BOARD.map(b => b.s)
-    cards.sort((a, b) => order.indexOf(a.status) - order.indexOf(b.status)
+    // Done on the left, Backlog on the right, so the delivered share reads as a filled bar
+    cards.sort((a, b) => DONE_FIRST_KEYS.indexOf(a.status) - DONE_FIRST_KEYS.indexOf(b.status)
       || a.type.localeCompare(b.type) || a.number - b.number)
 
     out.push({
@@ -980,8 +985,8 @@ function cardBlocks(r, kinds, what) {
 }
 function progressCell(r) {
   const behind = r.timePct > r.cardPct + 10 && r.state !== 'closed'
-  // top bar: every card, in board order, in the colour the board gives its status
-  const segs = BOARD.filter(b => r.statuses[b.s]).map(b => {
+  // top bar: every card, Done first so the bar fills from the left as work lands
+  const segs = DONE_FIRST.filter(b => r.statuses[b.s]).map(b => {
     const n = r.statuses[b.s], w = n / r.total * 100
     const tip = '<b>' + esc(b.short) + '</b> &middot; ' + n + ' card' + (n > 1 ? 's' : '')
       + ' &middot; ' + Math.round(w) + '%'
@@ -1150,8 +1155,8 @@ async function load(force) {
 
 // block fill = board status, block underline = card type; the legend lives in a hover tooltip
 $('legend').dataset.tip = '<span class="keys">'
-  + '<span class="key head">block = one card, fill = status</span>'
-  + BOARD.map(b => '<span class="key"><i style="background:' + b.c + '"></i>' + b.short + '</span>').join('')
+  + '<span class="key head">block = one card, fill = status (Done first)</span>'
+  + DONE_FIRST.map(b => '<span class="key"><i style="background:' + b.c + '"></i>' + b.short + '</span>').join('')
   + '<span class="key head">underline = type</span>'
   + ['Story','Task','Bug','Defect','no type'].map(t =>
     '<span class="key"><i class="ul" style="background:' + TYPE_COLOR[t] + '"></i>' + t + '</span>').join('')
