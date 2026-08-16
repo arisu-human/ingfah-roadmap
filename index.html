@@ -28,15 +28,26 @@
   .sep { flex:1 }
 
   /* ---- timeline ---- */
-  #tl { border:0; }
+  #tl { border:0; user-select:none; }
   .vis-timeline { border:0; font-family:inherit; font-size:12px; }
-  .vis-item { border-width:1px; border-radius:5px; color:#0b1220; }
-  .vis-item.vis-selected { box-shadow:0 0 0 2px #0969da; }
-  .vis-item .vis-item-content { padding:3px 8px; }
-  .vis-item.st-upcoming { background:var(--upcoming); border-color:#0d9488; }
-  .vis-item.st-running  { background:var(--running); border-color:#1d4ed8; color:#fff; }
-  .vis-item.st-slipped  { background:var(--slipped); border-color:#b45309; }
-  .vis-item.st-closed   { background:var(--closed); border-color:#9ca3af; color:#57606a; }
+  .vis-item { border-width:1px; border-radius:5px; color:#0b1220; background:#fff;
+              border-color:#afb8c1; }
+  .vis-item .vis-item-content { padding:0; width:100%; }
+  .vis-item.st-slipped { border-color:#e16f24; border-width:2px; }
+  .vis-item.st-closed  { background:#f0f2f5; border-color:#d8dee4; }
+
+  /* one block per card, coloured by repo */
+  .blocks { display:flex; height:20px; width:100%; align-items:stretch; }
+  .blocks i { flex:1 1 0; min-width:2px; border-right:1px solid rgba(255,255,255,.85); }
+  .blocks i:last-child { border-right:0; }
+  .vis-item.can-drag::after { content:''; position:absolute; right:0; top:0; bottom:0; width:6px;
+              background:rgba(31,35,40,.45); border-left:1px solid #fff;
+              border-radius:0 4px 4px 0; }
+  .vis-panel.vis-center { cursor:grab; }
+  .vis-panel.vis-center:active { cursor:grabbing; }
+  #tl.edge, #tl.edge * { cursor:ew-resize !important; }
+  .glab { color:inherit; text-decoration:none; }
+  .glab:hover { color:#0969da; text-decoration:underline; }
   .vis-panel.vis-left { width:250px; }
   .vis-labelset .vis-label { padding:0 10px; display:flex; align-items:center;
                              border-bottom:1px solid #eef1f4; font-size:12px; }
@@ -75,12 +86,10 @@
   .ratio .face { width:16px; height:16px; border-radius:50%; display:block;
                  border:1.5px solid rgba(255,255,255,.9); flex:0 0 auto; }
   .prog { width:150px; }
-  .pbar { display:flex; height:9px; border-radius:5px; overflow:hidden; background:#eaeef2;
+  .pbar { display:flex; height:10px; border-radius:5px; overflow:hidden; background:#eaeef2;
           border:1px solid var(--line); }
   .pbar + .pbar { margin-top:3px; }
   .pbar i { display:block; height:100%; }
-  .pbar i.done  { background:#1f6feb }
-  .pbar i.ready { background:#9ecbff }
   .pbar i.time  { background:#8c959f }
   .pbar i.time.behind { background:#f59e0b }
 
@@ -125,11 +134,8 @@
     <button id="today">Back to today</button>
     <button id="fit">Today &rarr; end</button>
     <button id="fitAllTime">Fit everything</button>
-    <span class="key"><i style="background:#5eead4"></i>upcoming</span>
-    <span class="key"><i style="background:#3b82f6"></i>in progress</span>
-    <span class="key"><i style="background:#f59e0b"></i>slipped</span>
-    <span class="key"><i style="background:#d1d5db"></i>closed</span>
-    <span class="muted">drag the right edge of a bar to move the due date</span>
+    <span id="legend"></span>
+    <span class="muted">drag anywhere to pan &middot; drag the dark right edge to move the due date</span>
     <span class="key" id="dateNow" style="font-weight:600;color:#0969da"></span>
     <span class="sep"></span>
     <span class="muted" id="windowLabel"></span>
@@ -149,7 +155,8 @@
 
 <div class="card">
   <p style="margin:0 0 10px"><input id="search" type="search" placeholder="Search milestone..." style="width:280px">
-     <span class="muted" id="searchCount"></span></p>
+     <span class="muted" id="searchCount"></span>
+     <span id="statusKey" style="margin-left:14px"></span></p>
   <div id="tableBox"><table id="table"></table></div>
 </div>
 <div id="tip"></div>
@@ -165,7 +172,27 @@ const QA = new Set(['kat100xfi','subzero-ice','viviintern-eng'])
 const STATUS_TODO = 'To Do'
 const STATUS_READY = 'Ready for Test'
 const STATUS_DONE  = 'Done'
-const WORKING = new Set(['In Progress','Review (Dev tested carefully)','Review', STATUS_READY, STATUS_DONE])
+const WORKING = new Set(['In Progress','Review (Dev tested carefully)','Review','Not Ready for Test',
+                         STATUS_READY, STATUS_DONE])
+
+// the Status field of the board, in board order, with the colour the board gives each option
+const BOARD = [
+  { s:'Backlog',                       c:'#6e7781', short:'Backlog' },
+  { s:'To Do',                         c:'#0969da', short:'To Do' },
+  { s:'In Progress',                   c:'#bf8700', short:'In Progress' },
+  { s:'Review (Dev tested carefully)', c:'#cf222e', short:'Review' },
+  { s:'Not Ready for Test',            c:'#bc4c00', short:'Not Ready for Test' },
+  { s:'Ready for Test',                c:'#8250df', short:'Ready for Test' },
+  { s:'Done',                          c:'#1a7f37', short:'Done' }
+]
+const STATUS_COLOR = {}, STATUS_SHORT = {}
+for (const b of BOARD) { STATUS_COLOR[b.s] = b.c; STATUS_SHORT[b.s] = b.short }
+
+// one colour per repo, so a bar shows at a glance which side the work sits on
+const REPO_COLOR = { 'zai-backend':'#1f6feb', 'zai-frontend':'#2da44e', 'zai-bo-frontend':'#8250df',
+                     'ingfah-rag':'#e16f24', 'ingfah-dev-docs':'#0e7490', 'zai-docs':'#bf3989' }
+const REPO_SHORT = { 'zai-backend':'BE', 'zai-frontend':'FE', 'zai-bo-frontend':'FE B/O',
+                     'ingfah-rag':'RAG', 'ingfah-dev-docs':'DOCS', 'zai-docs':'ZDOCS' }
 
 // same colours as the Type field on the board
 const TYPE_COLOR = { Story:'#2da44e', Task:'#1f6feb', Bug:'#cf222e', Defect:'#e16f24',
@@ -185,7 +212,7 @@ const MS_FIELDS = `
   number title dueOn createdAt
   issues(first:100){
     nodes{
-      state
+      number state
       issueType{ name }
       assignees(first:5){ nodes{ login avatarUrl } }
       timelineItems(first:40, itemTypes:[PROJECT_V2_ITEM_STATUS_CHANGED_EVENT]){
@@ -255,7 +282,9 @@ function build(all) {
     // every repo copy of this title, so one drag can move them all together
     row.refs.push({ repo:m.repo, number:m.number, dueOn:m.dueOn, closed:m.isClosed })
     // an Epic is a container, not a card: it would add a phantom release with no real work
-    row.issues.push(...m.issues.nodes.filter(i => !i.issueType || i.issueType.name !== 'Epic'))
+    row.issues.push(...m.issues.nodes
+      .filter(i => !i.issueType || i.issueType.name !== 'Epic')
+      .map(i => ({ ...i, repo: m.repo })))
   }
 
   const out = []
@@ -276,15 +305,16 @@ function build(all) {
     const lastDone = dones.length ? dones[dones.length - 1] : null
     const late = !!(lastDone && lastDone > row.due)
 
-    let done = 0, ready = 0
-    const types = {}, people = new Map()
+    const types = {}, people = new Map(), statuses = {}, cards = []
     for (const i of row.issues) {
       const t = (i.issueType && i.issueType.name) || 'no type'
       types[t] = (types[t] || 0) + 1
       const last = [...i.timelineItems.nodes].sort((a,b) => a.createdAt.localeCompare(b.createdAt)).pop()
-      const now = last ? last.status : null
-      if (now === STATUS_DONE || i.state === 'CLOSED') done++
-      else if (now === STATUS_READY) ready++
+      // a closed issue is finished whatever the board still says; a card that never reached the
+      // board has no status of its own, so it sits in Backlog
+      const now = i.state === 'CLOSED' ? STATUS_DONE : (last && last.status) || 'Backlog'
+      statuses[now] = (statuses[now] || 0) + 1
+      cards.push({ repo:i.repo, number:i.number, type:t, status:now })
       for (const a of i.assignees.nodes) {
         const p = people.get(a.login) || { login:a.login, avatar:a.avatarUrl, n:0, qa:QA.has(a.login) }
         p.n++; people.set(a.login, p)
@@ -299,6 +329,12 @@ function build(all) {
     const span = (new Date(row.due) - new Date(start)) / 864e5
     const gone = (new Date(today) - new Date(start)) / 864e5
     const all2 = [...people.values()].sort((a,b) => b.n - a.n)
+    const done = statuses[STATUS_DONE] || 0
+    const ready = statuses[STATUS_READY] || 0
+    // group the blocks by repo, then by how far the card has moved, so a bar reads left to right
+    const order = BOARD.map(b => b.s)
+    cards.sort((a, b) => a.repo.localeCompare(b.repo)
+      || order.indexOf(a.status) - order.indexOf(b.status) || a.number - b.number)
 
     out.push({
       title: row.title, name: cleanTitle(row.title), refs: row.refs,
@@ -307,7 +343,7 @@ function build(all) {
       state: row.closed ? 'closed' : late ? 'slipped' : startedAt ? 'running' : 'upcoming',
       barStart: start < endDate ? start : endDate,
       barEnd:   start < endDate ? endDate : start,
-      total: row.issues.length, done, ready, types,
+      total: row.issues.length, done, ready, types, statuses, cards,
       devs: all2.filter(p => !p.qa), qas: all2.filter(p => p.qa),
       cardPct: pct(done + ready, row.issues.length),
       donePct: pct(done, row.issues.length),
@@ -329,13 +365,28 @@ function faces(list) {
   return list.slice(0,6).map(p => '<img src="' + esc(p.avatar) + '&s=32" title="' + esc(p.login) + '">').join('')
 }
 function itemTooltip(r) {
+  const byRepo = {}
+  for (const c of r.cards) byRepo[c.repo] = (byRepo[c.repo] || 0) + 1
   return '<b>' + esc(r.name) + '</b> &middot; ' + STATE_LABEL[r.state] + '<br>'
     + pretty(r.start) + ' to ' + pretty(r.end)
     + (r.startedAt ? '' : ' <i>(nothing started yet)</i>') + '<br>'
     + r.done + ' done' + (r.ready ? ' + ' + r.ready + ' ready for test' : '') + ' of ' + r.total + ' cards<br>'
+    + Object.entries(byRepo).map(([k, n]) => REPO_SHORT[k] + ' ' + n).join(' &middot; ') + '<br>'
     + 'cards ' + Math.round(r.cardPct) + '% &middot; time ' + Math.round(r.timePct) + '%'
     + (r.devs.length ? '<br>' + faces(r.devs) : '')
     + (r.qas.length ? ' | ' + faces(r.qas) : '')
+}
+
+// one small block per card inside the bar, coloured by repo, greyed out once the release closes
+function blocksHtml(r, i) {
+  const grey = r.state === 'closed'
+  const blocks = r.cards.map(c => {
+    const tip = '<b>' + esc(REPO_SHORT[c.repo] || c.repo) + ' #' + c.number + '</b> &middot; ' + esc(c.type)
+      + '<br>' + esc(STATUS_SHORT[c.status] || c.status)
+    return '<i style="background:' + (grey ? '#c6cdd5' : (REPO_COLOR[c.repo] || '#8b949e'))
+      + '" data-tip="' + esc(tip) + '"></i>'
+  }).join('')
+  return '<span class="blocks" data-id="' + i + '" data-tip="' + esc(itemTooltip(r)) + '">' + blocks + '</span>'
 }
 function shading(from, to) {
   const bg = []
@@ -358,7 +409,27 @@ function shading(from, to) {
 
 const plus = (d, n) => { const x = new Date(d + 'T00:00:00Z'); x.setUTCDate(x.getUTCDate() + n)
                          return x.toISOString().slice(0,10) }
-let groups = null, firstDraw = true, shownCache = [], draggedAt = 0
+let groups = null, firstDraw = true, shownCache = [], resize = null
+
+// dragging the due date handle: the bar follows the pointer, and letting go opens the confirm bar
+document.addEventListener('pointermove', e => {
+  if (!resize || !timeline) return
+  const t = timeline.getEventProperties(e).time
+  if (!t) return
+  const min = plus(resize.row.barStart, 1)              // a bar never ends before it starts
+  const d = toDay(t)
+  resize.day = d < min ? min : d
+  items.update({ id: resize.id, end: resize.day })
+})
+const endResize = () => {
+  if (!resize) return
+  const done = resize
+  resize = null
+  $('tl').classList.remove('edge')
+  if (done.day) askConfirm(done.row, done.day)
+}
+document.addEventListener('pointerup', endResize)
+document.addEventListener('pointercancel', endResize)
 
 // vis hands back a Date; round it to the nearest whole day so a bar always lands on a date
 const toDay = d => new Date(Math.round(+d / 864e5) * 864e5).toISOString().slice(0,10)
@@ -373,18 +444,17 @@ function drawTimeline(rows) {
   // one group per release, so every release keeps a row of its own
   const groupData = shown.map((r, i) => ({
     id: i, order: i, className: 'g-' + r.state,
-    content: esc(r.name) + '<span class="cnt">' + r.done + '/' + r.total + '</span>'
+    content: '<a class="glab" target="_blank" rel="noopener" href="'
+      + PROJECT_SLICE + encodeURIComponent(r.title) + '">' + esc(r.name) + '</a>'
+      + '<span class="cnt">' + r.done + '/' + r.total + '</span>'
   }))
   const data = shown.map((r, i) => ({
     id: i, group: i,
-    content: '<span class="cnt">' + r.done + '/' + r.total + '</span>',
+    content: blocksHtml(r, i),
     start: r.barStart,
     end: r.barEnd > r.barStart ? r.barEnd : plus(r.barStart, 1),   // never a zero-width bar
-    className: 'st-' + r.state,
-    title: itemTooltip(r),
-    url: PROJECT_SLICE + encodeURIComponent(r.title),
-    // only an open release can be rescheduled, and only its right edge moves
-    editable: r.state === 'closed' ? false : { updateTime:true, updateGroup:false, remove:false }
+    className: 'st-' + r.state + (r.state === 'closed' ? '' : ' can-drag'),
+    url: PROJECT_SLICE + encodeURIComponent(r.title)
   })).concat(shading(lo, plus(hi, 14)))   // background bands carry no group, so they span every row
 
   if (!timeline) {
@@ -394,39 +464,42 @@ function drawTimeline(rows) {
       stack: false,
       horizontalScroll: false, verticalScroll: true,
       zoomKey: 'ctrlKey', zoomMin: 3 * 864e5, zoomMax: 800 * 864e5,
-      moveable: true, selectable: true, orientation: { axis:'top' },
+      // vis item editing is off on purpose: dragging anywhere then pans the view like a hand
+      // tool, and the due date is moved by our own handle on the right edge instead
+      moveable: true, selectable: false, editable: false, orientation: { axis:'top' },
       margin: { item: { horizontal: 0, vertical: 5 }, axis: 6 },
-      tooltip: { followMouse: true, overflowMethod: 'cap' },
       showCurrentTime: true, maxHeight: '72vh', groupOrder: 'order',
-      editable: { updateTime:true, updateGroup:false, add:false, remove:false, overrideItems:false },
-      snap: d => new Date(Math.round(+d / 864e5) * 864e5),
-      // while the bar is being dragged: hold the start still, so only the due date moves
-      onMoving: (item, cb) => {
-        const r = shownCache[item.id]
-        if (!r) return cb(null)
-        draggedAt = Date.now()
-        item.start = new Date(r.barStart + 'T00:00:00Z')
-        const min = +item.start + 864e5
-        if (+item.end < min) item.end = new Date(min)
-        cb(item)
-      },
-      // dropped: keep the bar where it landed and ask for a confirmation before touching GitHub
-      onMove: (item, cb) => {
-        const r = shownCache[item.id]
-        if (!r) return cb(null)
-        draggedAt = Date.now()
-        cb(item)
-        askConfirm(r, toDay(item.end))
-      },
       format: {
         minorLabels: { day:'D', weekday:'D', week:'D', month:'MMM' },
         majorLabels: { day:'MMMM YYYY', weekday:'MMMM YYYY', week:'MMMM YYYY', month:'YYYY' }
       }
     })
-    timeline.on('select', ({ items: sel }) => {
-      if (Date.now() - draggedAt < 400) return           // a drag also selects, do not open a tab
-      const it = sel.length && items.get(sel[0])
+    timeline.on('doubleClick', props => {               // the milestone name on the left is a link too
+      const it = props.item != null && items.get(props.item)
       if (it && it.url) window.open(it.url, '_blank', 'noopener')
+    })
+
+    // the last few pixels of a bar are the due date handle; everywhere else belongs to the hand tool
+    const EDGE = 9
+    const itemAt = t => {
+      const el = t && t.closest && t.closest('.vis-item')
+      const h = el && el.querySelector('[data-id]')
+      return h ? { el, id: +h.dataset.id, row: shownCache[+h.dataset.id] } : null
+    }
+    const onEdge = (hit, x) => !!hit && !!hit.row && hit.row.state !== 'closed'
+      && x >= hit.el.getBoundingClientRect().right - EDGE
+
+    // vis drives its panning from pointerdown, so the handle has to claim that same event
+    // in the capture phase. preventDefault is left out on purpose: it would kill the
+    // pointermove events the drag needs.
+    $('tl').addEventListener('pointerdown', e => {
+      const hit = itemAt(e.target)
+      if (!onEdge(hit, e.clientX)) return
+      e.stopPropagation()                                 // hold the hand tool back
+      resize = { id: hit.id, row: hit.row, day: null }
+    }, true)
+    $('tl').addEventListener('pointermove', e => {
+      if (!resize) $('tl').classList.toggle('edge', onEdge(itemAt(e.target), e.clientX))
     })
     // a vertical line that follows the pointer with the date written on it
     timeline.addCustomTime(new Date(), 'cursor')
@@ -439,16 +512,24 @@ function drawTimeline(rows) {
         { weekday:'long', day:'numeric', month:'long', year:'numeric' })
     })
 
-    // sideways scroll: a trackpad swipe or shift+wheel moves along the timeline
     $('tl').addEventListener('wheel', e => {
       if (e.ctrlKey || e.metaKey) return                     // leave zoom to vis
+      // sideways: a trackpad swipe or shift+wheel moves along the timeline
       const dx = Math.abs(e.deltaX) > Math.abs(e.deltaY) ? e.deltaX
                : e.shiftKey ? e.deltaY : 0
-      if (!dx) return                                        // plain up/down scrolls the rows
-      e.preventDefault(); e.stopPropagation()
-      const w = timeline.getWindow()
-      const step = (w.end - w.start) * (dx / $('tl').clientWidth)
-      timeline.setWindow(new Date(+w.start + step), new Date(+w.end + step), { animation:false })
+      if (dx) {
+        e.preventDefault(); e.stopPropagation()
+        const w = timeline.getWindow()
+        const step = (w.end - w.start) * (dx / $('tl').clientWidth)
+        timeline.setWindow(new Date(+w.start + step), new Date(+w.end + step), { animation:false })
+        return
+      }
+      // up and down: vis only listens on the name column, so drive its scroller ourselves
+      const box = timeline.dom && timeline.dom.left && timeline.dom.left.parentNode
+      if (!box) return
+      const was = box.scrollTop
+      box.scrollTop = was + e.deltaY
+      if (box.scrollTop !== was) { e.preventDefault(); e.stopPropagation() }
     }, { passive:false, capture:true })
   } else {
     items.clear(); items.add(data)
@@ -597,16 +678,18 @@ function typeBar(r) {
 }
 function progressCell(r) {
   const behind = r.timePct > r.cardPct + 10 && r.state !== 'closed'
-  const cardTip = '<b>Cards</b> ' + r.done + ' done'
-    + (r.ready ? ' + ' + r.ready + ' ready for test' : '') + ' of ' + r.total
-    + ' &middot; ' + Math.round(r.cardPct) + '%'
+  // top bar: every card, in board order, in the colour the board gives its status
+  const segs = BOARD.filter(b => r.statuses[b.s]).map(b => {
+    const n = r.statuses[b.s], w = n / r.total * 100
+    const tip = '<b>' + esc(b.short) + '</b> &middot; ' + n + ' card' + (n > 1 ? 's' : '')
+      + ' &middot; ' + Math.round(w) + '%'
+    return '<i style="width:' + w.toFixed(2) + '%;background:' + b.c + '" data-tip="' + esc(tip) + '"></i>'
+  }).join('')
   const timeTip = '<b>Time</b> ' + Math.round(r.timePct) + '% gone &middot; '
     + pretty(r.start) + ' to ' + pretty(r.due)
     + (behind ? '<br>time is ahead of the cards' : '')
   return '<div class="prog">'
-    + '<span class="pbar" data-tip="' + esc(cardTip) + '">'
-    +   '<i class="done" style="width:' + r.donePct.toFixed(1) + '%"></i>'
-    +   '<i class="ready" style="width:' + (r.cardPct - r.donePct).toFixed(1) + '%"></i></span>'
+    + '<span class="pbar">' + segs + '</span>'
     + '<span class="pbar" data-tip="' + esc(timeTip) + '">'
     +   '<i class="time' + (behind ? ' behind' : '') + '" style="width:' + r.timePct.toFixed(1) + '%"></i></span>'
     + '</div>'
@@ -707,6 +790,13 @@ async function load() {
     if (/rejected|access/i.test(e.message)) { $('gate').style.display = 'block'; $('gateErr').textContent = e.message }
   }
 }
+
+$('legend').innerHTML = Object.keys(REPO_COLOR).map(k =>
+  '<span class="key"><i style="background:' + REPO_COLOR[k] + '"></i>' + REPO_SHORT[k] + '</span>').join('')
+  + '<span class="key"><i style="background:#c6cdd5"></i>closed</span>'
+  + '<span class="key"><i style="background:#fff;border:2px solid #e16f24"></i>slipped</span>'
+$('statusKey').innerHTML = BOARD.map(b =>
+  '<span class="key"><i style="background:' + b.c + '"></i>' + b.short + '</span>').join('')
 
 $('save').onclick = () => { localStorage.setItem('ghToken', $('token').value.trim()); $('token').value = ''; load() }
 $('token').onkeydown = e => { if (e.key === 'Enter') $('save').click() }
