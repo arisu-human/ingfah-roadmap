@@ -64,15 +64,29 @@
   .vis-item.st-closed  { background:#f0f2f5; border-color:#d8dee4; }
 
   /* one equal block per card: fill = card type, stripe underneath = repo */
-  .blocks { display:flex; height:22px; width:100%; align-items:stretch; }
+  .blocks { display:flex; height:17px; width:100%; align-items:stretch; }
   .blocks i { flex:1 1 0; min-width:2px; box-sizing:border-box;
               border-right:1px solid rgba(255,255,255,.9); border-bottom:3px solid transparent; }
   .blocks i:last-child { border-right:0; }
+  /* a card with no Type set on GitHub: hatched, so it reads as needing attention */
+  .notype { background-image:repeating-linear-gradient(45deg,
+            rgba(0,0,0,.16) 0 2px, transparent 2px 5px) !important; }
   .vis-item.can-drag::after { content:''; position:absolute; right:0; top:0; bottom:0; width:7px;
               background:rgba(31,35,40,.5); border-left:1px solid #fff;
               border-radius:0 4px 4px 0; }
   /* the whole chart is a hand tool, apart from the due date handle */
   .vis-panel.vis-center, .vis-panel.vis-center * { cursor:grab; }
+  /* the sprint pane floats ON TOP of the bars, so it is a real overlay rather than a vis
+     background item: those render behind everything and could not frost what they cover */
+  #sprint { position:absolute; top:0; bottom:0; z-index:6; pointer-events:none; display:none;
+            border-radius:12px; border:1px solid rgba(24,29,38,.22);
+            background:rgba(255,255,255,.30); backdrop-filter:blur(1.5px) saturate(1.25);
+            -webkit-backdrop-filter:blur(1.5px) saturate(1.25);
+            box-shadow:0 1px 3px rgba(24,29,38,.10), inset 0 1px 0 rgba(255,255,255,.65); }
+  #sprint b { position:absolute; top:4px; left:50%; transform:translateX(-50%);
+              font-size:10px; font-weight:500; letter-spacing:.4px; text-transform:uppercase;
+              color:var(--ink); background:rgba(255,255,255,.8); border-radius:12px;
+              padding:1px 8px; white-space:nowrap; }
   #tl.grabbing .vis-panel.vis-center, #tl.grabbing .vis-panel.vis-center * { cursor:grabbing !important; }
   #tl.edge .vis-panel.vis-center, #tl.edge .vis-panel.vis-center * { cursor:ew-resize !important; }
   .vis-panel.vis-left { width:280px; }
@@ -101,9 +115,10 @@
   .toolrow { display:flex; align-items:center; flex-wrap:wrap; gap:10px 14px; margin-bottom:14px; }
   #tableBox { max-height:calc(100vh - 180px); overflow:auto; }
   table { border-collapse:collapse; width:100%; font-size:13px; }
-  th, td { text-align:left; padding:9px 14px; border-bottom:1px solid var(--line); white-space:nowrap;
-           vertical-align:middle; }
+  th, td { text-align:left; padding:5px 14px; border-bottom:1px solid var(--line); white-space:nowrap;
+           vertical-align:middle; line-height:1.3; }
   th:first-child, td:first-child { padding-left:4px; }
+  th { padding-top:8px; padding-bottom:8px; }
   th { color:var(--muted); font-weight:500; cursor:pointer; user-select:none; position:sticky; top:0;
        background:var(--card); z-index:2; }
   th:hover { color:var(--ink); }
@@ -114,15 +129,22 @@
   a.rel { color:inherit; text-decoration:none; border-bottom:1px dotted var(--hairline); }
   a.rel:hover { color:var(--link); border-bottom-color:var(--link); }
 
-  .ratio { display:flex; height:20px; border-radius:6px; overflow:hidden;
+  .ratio { display:flex; height:17px; border-radius:6px; overflow:hidden;
            border:1px solid var(--hairline); background:var(--surface-soft); }
   .ratio .seg { height:100%; display:flex; align-items:center; justify-content:center;
                 overflow:hidden; min-width:3px; }
-  .ratio .face { width:16px; height:16px; border-radius:50%; display:block;
+  .ratio .face { width:14px; height:14px; border-radius:50%; display:block;
                  border:1.5px solid rgba(255,255,255,.9); flex:0 0 auto; }
-  .pbar { display:flex; height:10px; border-radius:2px; overflow:hidden; background:var(--surface-soft);
+  /* one block per card, so a count is readable by eye even when the bar fills the column */
+  .cards { display:flex; height:17px; border-radius:6px; overflow:hidden;
+           border:1px solid var(--hairline); background:var(--surface-soft); }
+  .cards i { flex:1 1 0; min-width:3px; box-sizing:border-box;
+             border-right:1px solid var(--canvas); }
+  .cards i:last-child { border-right:0; }
+  .cards.none { border-style:dashed; }
+  .pbar { display:flex; height:8px; border-radius:2px; overflow:hidden; background:var(--surface-soft);
           border:1px solid var(--hairline); }
-  .pbar + .pbar { margin-top:4px; }
+  .pbar + .pbar { margin-top:3px; }
   .pbar i { display:block; height:100%; }
   .pbar i.time  { background:#9297a0 }
   .pbar i.time.behind { background:#f59e0b }
@@ -173,6 +195,13 @@
     <button id="fitAllTime" title="Fit every release on screen">All</button>
     <span class="chip" id="legend">Legend</span>
     <span class="chip" id="help">?</span>
+    <button id="sprintBtn" title="Highlight the current sprint on the chart">Sprint</button>
+    <span id="sprintBox" hidden>
+      <input id="sprintFrom" type="date" style="width:auto">
+      <input id="sprintTo" type="date" style="width:auto">
+      <button id="sprintSave" class="primary">Set</button>
+      <button id="sprintClear">Clear</button>
+    </span>
     <span class="key" id="dateNow" style="font-weight:500;color:var(--ink)"></span>
     <span class="sep"></span>
     <button id="older" title="Load releases closed further back">Older</button>
@@ -465,7 +494,7 @@ function blocksEl(r, i) {
   wrap.dataset.tip = itemTooltip(r)
   const grey = r.state === 'closed'
   for (const c of r.cards) {
-    const b = elem('i')
+    const b = elem('i', c.type === 'no type' ? 'notype' : '')
     b.style.background = grey ? '#dde2e7' : (TYPE_COLOR[c.type] || TYPE_COLOR['no type'])
     b.style.borderBottomColor = grey ? '#c6cdd5' : (REPO_COLOR[c.repo] || '#8b949e')
     b.dataset.tip = '<b>' + esc(REPO_SHORT[c.repo] || c.repo) + ' #' + c.number + '</b> &middot; '
@@ -569,7 +598,7 @@ function drawTimeline(rows) {
       // vis item editing is off on purpose: dragging anywhere then pans the view like a hand
       // tool, and the due date is moved by our own handle on the right edge instead
       moveable: true, selectable: false, editable: false, orientation: { axis:'top' },
-      margin: { item: { horizontal: 0, vertical: 5 }, axis: 6 },
+      margin: { item: { horizontal: 0, vertical: 3 }, axis: 4 },
       showCurrentTime: true, maxHeight: '72vh', groupOrder: 'order',
       format: {
         minorLabels: { day:'D', weekday:'D', week:'D', month:'MMM' },
@@ -577,6 +606,9 @@ function drawTimeline(rows) {
       }
     })
     timeline.on('rangechanged', tuneAxis)
+    timeline.on('rangechange', placeSprint)     // track it live while panning and zooming
+    timeline.on('changed', placeSprint)
+    addEventListener('resize', placeSprint)
     timeline.on('doubleClick', props => {             // the milestone name on the left is a link too
       const it = props.item != null && items.get(props.item)
       if (it && it.url) window.open(it.url, '_blank', 'noopener')
@@ -641,7 +673,7 @@ function drawTimeline(rows) {
   }
   // open on the whole road ahead: a week before today, out to the last future release
   if (firstDraw) { firstDraw = false; showFuture(shown) }
-  tuneAxis()
+  tuneAxis(); placeSprint()
   $('older').title = 'Showing releases closed in the last ' + windowDays + ' days. Load further back.'
 }
 
@@ -656,6 +688,54 @@ function tuneAxis() {
   if (want === axisScale) return
   axisScale = want
   timeline.setOptions({ timeAxis: { scale: want, step: 1 } })
+}
+
+/* ---- sprint pane: a frosted block laid over the chart between two dates ---- */
+let sprint = null
+try { sprint = JSON.parse(localStorage.getItem('sprint') || 'null') } catch (e) { sprint = null }
+let sprintEl = null
+
+function placeSprint() {
+  if (!timeline) return
+  if (!sprintEl) {
+    sprintEl = elem('div'); sprintEl.id = 'sprint'
+    sprintEl.appendChild(elem('b'))
+    timeline.dom.center.parentNode.appendChild(sprintEl)   // the visible time window
+  }
+  if (!sprint || !sprint.from || !sprint.to) { sprintEl.style.display = 'none'; return }
+  const w = timeline.getWindow()
+  const box = timeline.dom.center.parentNode.getBoundingClientRect()
+  const at = d => (new Date(d + 'T00:00:00Z') - w.start) / (w.end - w.start) * box.width
+  const x1 = at(sprint.from), x2 = at(plus(sprint.to, 1))   // the end day is included
+  if (x2 < 0 || x1 > box.width) { sprintEl.style.display = 'none'; return }
+  sprintEl.style.display = 'block'
+  sprintEl.style.left = Math.max(-2, x1) + 'px'
+  sprintEl.style.width = Math.max(2, Math.min(box.width + 2, x2) - Math.max(-2, x1)) + 'px'
+  const days = Math.round((new Date(sprint.to) - new Date(sprint.from)) / 864e5) + 1
+  sprintEl.firstChild.textContent = 'Sprint · ' + pretty(sprint.from) + ' to ' + pretty(sprint.to)
+    + ' · ' + days + 'd'
+}
+
+function saveSprint(v) {
+  sprint = v
+  if (v) localStorage.setItem('sprint', JSON.stringify(v)); else localStorage.removeItem('sprint')
+  placeSprint()
+}
+$('sprintBtn').onclick = () => {
+  const on = $('sprintBox').hidden
+  $('sprintBox').hidden = !on
+  if (on && sprint) { $('sprintFrom').value = sprint.from; $('sprintTo').value = sprint.to }
+}
+$('sprintSave').onclick = () => {
+  const from = $('sprintFrom').value, to = $('sprintTo').value
+  if (!from || !to || to < from) return
+  saveSprint({ from, to })
+  $('sprintBox').hidden = true
+}
+$('sprintClear').onclick = () => {
+  saveSprint(null)
+  $('sprintFrom').value = ''; $('sprintTo').value = ''
+  $('sprintBox').hidden = true
 }
 
 function showFuture(shown) {
@@ -775,7 +855,7 @@ function toMermaid(rows) {
 // Off: every bar is as wide as the release has cards, so a big release looks big next to a
 // small one. On: every bar fills the column, which compares the mix and hides the size.
 let full = localStorage.getItem('fullBars') === '1'
-let maxCards = 1
+let maxCards = 1, maxKind = 1     // biggest release, and biggest single Story+Task / Bug+Defect group
 const widthOf = base => full ? base + 'px'
   : Math.max(16, Math.round(base * scaleRow / maxCards)) + 'px'
 let scaleRow = 1                       // the card count of the row being drawn right now
@@ -793,14 +873,24 @@ function peopleBar(list) {
       + '<img class="face" src="' + esc(p.avatar) + '&s=48" alt="' + esc(p.login) + '"></span>'
   }).join('') + '</span>'
 }
-function typeBar(r) {
-  if (!r.total) return '<span class="muted">-</span>'
-  return '<span class="ratio" style="width:' + widthOf(170) + '">'
-    + Object.entries(r.types).sort((a,b) => b[1] - a[1]).map(([t, n]) => {
-    const w = n / r.total * 100
-    const tip = '<b>' + esc(t) + '</b> &middot; ' + n + ' cards &middot; ' + Math.round(w) + '%'
-    return '<span class="seg" style="width:' + w.toFixed(2) + '%;background:'
-      + (TYPE_COLOR[t] || '#8b949e') + '" data-tip="' + esc(tip) + '"></span>'
+// One block per card so the count is readable by eye. Off the 100% toggle the bar is as wide
+// as the cards it holds; on it, the blocks share the column but keep their separators.
+const BUILD_TYPES = ['Story', 'Task', 'no type']
+const FIX_TYPES   = ['Bug', 'Defect']
+function cardBlocks(r, kinds) {
+  const list = r.cards.filter(c => kinds.includes(c.type))
+    .sort((a, b) => kinds.indexOf(a.type) - kinds.indexOf(b.type) || a.number - b.number)
+  const base = 96
+  const w = full ? base : Math.max(6, Math.round(base * list.length / Math.max(1, maxKind)))
+  if (!list.length) return '<span class="cards none" style="width:' + w + 'px"></span>'
+  const counts = {}
+  for (const c of list) counts[c.type] = (counts[c.type] || 0) + 1
+  const head = Object.entries(counts).map(([t, n]) => n + ' ' + esc(t)).join(' &middot; ')
+  return '<span class="cards" style="width:' + w + 'px">' + list.map(c => {
+    const tip = '<b>' + head + '</b><br>' + esc(REPO_SHORT[c.repo] || c.repo) + ' #' + c.number
+      + ' &middot; ' + esc(c.type) + '<br>' + esc(STATUS_SHORT[c.status] || c.status)
+    return '<i class="' + (c.type === 'no type' ? 'notype' : '') + '" style="background:'
+      + (TYPE_COLOR[c.type] || TYPE_COLOR['no type']) + '" data-tip="' + esc(tip) + '"></i>'
   }).join('') + '</span>'
 }
 function progressCell(r) {
@@ -829,7 +919,10 @@ const COLS = [
     val:r => r.name.toLowerCase() },
   { k:'state', h:'State',    cell:r => STATE_LABEL[r.state], val:r => r.state },
   { k:'prog',  h:'Progress', cell:progressCell, val:r => r.cardPct - r.timePct },
-  { k:'types', h:'Card mix', cell:typeBar, val:r => r.total },
+  { k:'build', h:'Story & Task', cell:r => cardBlocks(r, BUILD_TYPES),
+    val:r => r.cards.filter(c => BUILD_TYPES.includes(c.type)).length },
+  { k:'fix',   h:'Bug & Defect', cell:r => cardBlocks(r, FIX_TYPES),
+    val:r => r.cards.filter(c => FIX_TYPES.includes(c.type)).length },
   { k:'devs',  h:'Devs',     cell:r => peopleBar(r.devs), val:r => r.devs.length },
   { k:'qas',   h:'QAs',      cell:r => peopleBar(r.qas),  val:r => r.qas.length },
   { k:'start', h:'Started',  cell:r => pretty(r.start) + (r.startedAt ? '' : ' <span class="muted">(not started)</span>'),
@@ -848,7 +941,12 @@ function drawTable() {
     const x = col.val(a), y = col.val(b)
     return (x < y ? -1 : x > y ? 1 : 0) * sortDir
   })
-  maxCards = Math.max(1, ...rowsCache.filter(inWindow).map(r => r.total))
+  const win = rowsCache.filter(inWindow)
+  maxCards = Math.max(1, ...win.map(r => r.total))
+  // both columns share one scale, so 8 blocks means the same width in either of them
+  maxKind = Math.max(1, ...win.flatMap(r => [
+    r.cards.filter(c => BUILD_TYPES.includes(c.type)).length,
+    r.cards.filter(c => FIX_TYPES.includes(c.type)).length]))
   const head = '<tr>' + COLS.map(c =>
     '<th data-k="' + c.k + '" class="' + (c.k === sortKey ? 'sorted' : '') + '">' + c.h
     + ' <span class="arrow">' + (c.k === sortKey ? (sortDir > 0 ? '&#9650;' : '&#9660;') : '&#9670;')
@@ -974,6 +1072,7 @@ $('help').dataset.tip = '<span class="keys">'
   + '<span class="key">wheel &middot; rows &middot; shift+wheel &middot; timeline</span>'
   + '<span class="key">ctrl/&#8984;+wheel &middot; zoom</span>'
   + '<span class="key">double click a bar &middot; open the board</span>'
+  + '<span class="key">Sprint &middot; frost the current sprint over the chart</span>'
   + '</span>'
 function paintFull() {
   $('full').textContent = (full ? '☑' : '☐') + ' Show to 100%'
