@@ -210,6 +210,16 @@
   .bar.ask.on { display:flex; }
   button:disabled { opacity:.6; cursor:default; }
   .vis-item .vis-drag-right { width:10px; cursor:ew-resize; }
+  /* skeleton: the shape of the answer while the answer is still loading */
+  @keyframes shimmer { 0% { background-position:200% 0 } 100% { background-position:-200% 0 } }
+  .sk { display:block; border-radius:6px; background-size:200% 100%;
+        background-image:linear-gradient(90deg, #eef1f4 25%, #f8fafc 37%, #eef1f4 63%);
+        animation:shimmer 1.5s linear infinite; }
+  @media (prefers-reduced-motion:reduce) { .sk { animation:none } }
+  .sk-axis { height:36px; border-bottom:1px solid var(--hairline); }
+  .sk-row { display:flex; align-items:center; height:23px; border-bottom:1px solid #eef1f4; }
+  .sk-lab { flex:0 0 280px; padding:0 14px; border-right:1px solid var(--hairline); }
+  .sk-track { flex:1 1 auto; padding:0 12px; overflow:hidden; }
   .err { color:#b62324; }
   #gate { display:none; }
 </style>
@@ -259,7 +269,7 @@
     <button id="askNo">Cancel</button>
     <span class="muted" id="askRepos"></span>
   </div>
-  <div id="tl">Loading...</div>
+  <div id="tl"></div>
 </div>
 
 <div class="card">
@@ -644,7 +654,7 @@ function drawTimeline(rows) {
   })).concat(shading(lo, plus(hi, 14)))   // background bands carry no group, so they span every row
 
   if (!timeline) {
-    $('tl').textContent = ''                  // drop the "Loading..." placeholder
+    $('tl').textContent = ''                  // drop the skeleton before vis builds its DOM
     items = new vis.DataSet(data)
     groups = new vis.DataSet(groupData)
     timeline = new vis.Timeline($('tl'), items, groups, {
@@ -1123,6 +1133,31 @@ $('mmdCopy').onclick = async () => {
   setTimeout(() => $('mmdCopy').textContent = 'Mermaid', 1500)
 }
 
+/* ---- skeleton ---- */
+// Fixed widths, not random ones: the placeholder must not jitter between frames, and a
+// re-render has to land in the same place. Cell sizes are driven off COLS, so a new column
+// gets a placeholder without anyone remembering to add one.
+const SK_BAR = [[6,54],[22,38],[2,71],[35,44],[14,60],[41,29],[9,66],[27,49],[17,57],[3,74]]
+const SK_CELL = { name:[180,9], state:[64,16], prog:[196,20], build:[132,17], fix:[104,17],
+                  devs:[104,17], qas:[68,17], dates:[124,9] }
+function skeleton(n = 10) {
+  const rows = SK_BAR.slice(0, n).map(([off, w]) =>
+    '<div class="sk-row"><span class="sk-lab"><span class="sk" style="width:'
+    + (60 + (w % 35)) + '%;height:9px"></span></span>'
+    + '<span class="sk-track"><span class="sk" style="margin-left:' + off + '%;width:' + w
+    + '%;height:17px"></span></span></div>').join('')
+  $('tl').innerHTML = '<div aria-hidden="true"><div class="sk-axis"></div>' + rows + '</div>'
+
+  const cells = COLS.map(c => {
+    const [w, h] = SK_CELL[c.k] || [90, 12]
+    return '<td class="col-' + c.k + '"><span class="sk" style="width:' + w + 'px;height:' + h
+      + 'px' + (h > 14 ? ';border-radius:9999px' : '') + '"></span></td>'
+  }).join('')
+  const head = '<tr>' + COLS.map(c => '<th>' + c.h + '</th>').join('') + '</tr>'
+  $('table').innerHTML = head + ('<tr>' + cells + '</tr>').repeat(n)
+  $('table').setAttribute('aria-busy', 'true')
+}
+
 /* ---- load ---- */
 // The built rows are kept in this browser so a reload, or a second tab, paints at once and
 // spends nothing. Only a stale cache, the Refresh button or Show older costs API budget.
@@ -1136,6 +1171,7 @@ function readCache() {
 }
 
 function paint(when) {
+  $('table').removeAttribute('aria-busy')
   drawTable()
   drawTimeline(rowsCache)
   const shown = rowsCache.filter(inWindow)
@@ -1155,7 +1191,11 @@ function paint(when) {
 
 let loading = false
 async function load(force) {
-  if (!token()) { $('gate').style.display = 'block'; $('tl').textContent = ''; return }
+  if (!token()) {
+    $('gate').style.display = 'block'
+    $('tl').textContent = ''; $('table').innerHTML = ''
+    return
+  }
   $('gate').style.display = 'none'
   const cached = readCache()
   if (!force && cached && cached.closedMs >= closedMs && Date.now() - cached.at < REFRESH_MS) {
@@ -1165,6 +1205,9 @@ async function load(force) {
   }
   if (loading) return
   loading = true
+  // only when there is nothing on screen: replacing a live chart with a placeholder is worse
+  // than letting the old numbers stand for a few seconds while the new ones arrive
+  if (!rowsCache.length) skeleton()
   try {
     truncated = []; capped = []
     const all = (await Promise.all(REPOS.map(fetchRepo))).flat()
@@ -1178,6 +1221,8 @@ async function load(force) {
       $('stamp').innerHTML += ' · <span class="err">' + esc(e.message) + '</span>'
     } else {
       $('tl').innerHTML = '<p class="err" style="padding:16px">' + esc(e.message) + '</p>'
+      $('table').innerHTML = ''                  // clear the skeleton, it would look like data
+      $('table').removeAttribute('aria-busy')
     }
     if (/rejected|access/i.test(e.message)) { $('gate').style.display = 'block'; $('gateErr').textContent = e.message }
   } finally { loading = false }
