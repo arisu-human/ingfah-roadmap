@@ -79,13 +79,12 @@
   a.rel { color:inherit; text-decoration:none; border-bottom:1px dotted var(--line); }
   a.rel:hover { color:#0969da; border-bottom-color:#0969da; }
 
-  .ratio { display:flex; width:170px; height:20px; border-radius:10px; overflow:hidden;
+  .ratio { display:flex; height:20px; border-radius:10px; overflow:hidden;
            border:1px solid var(--line); background:#f0f2f5; }
   .ratio .seg { height:100%; display:flex; align-items:center; justify-content:center;
                 overflow:hidden; min-width:3px; }
   .ratio .face { width:16px; height:16px; border-radius:50%; display:block;
                  border:1.5px solid rgba(255,255,255,.9); flex:0 0 auto; }
-  .prog { width:150px; }
   .pbar { display:flex; height:10px; border-radius:5px; overflow:hidden; background:#eaeef2;
           border:1px solid var(--line); }
   .pbar + .pbar { margin-top:3px; }
@@ -156,6 +155,7 @@
 <div class="card">
   <p style="margin:0 0 10px"><input id="search" type="search" placeholder="Search milestone..." style="width:280px">
      <span class="muted" id="searchCount"></span>
+     <button id="full" style="margin-left:10px"></button>
      <span id="statusKey" style="margin-left:14px"></span></p>
   <div id="tableBox"><table id="table"></table></div>
 </div>
@@ -194,9 +194,10 @@ const REPO_COLOR = { 'zai-backend':'#1f6feb', 'zai-frontend':'#2da44e', 'zai-bo-
 const REPO_SHORT = { 'zai-backend':'BE', 'zai-frontend':'FE', 'zai-bo-frontend':'FE B/O',
                      'ingfah-rag':'RAG', 'ingfah-dev-docs':'DOCS', 'zai-docs':'ZDOCS' }
 
-// same colours as the Type field on the board
-const TYPE_COLOR = { Story:'#2da44e', Task:'#1f6feb', Bug:'#cf222e', Defect:'#e16f24',
-                     Epic:'#8250df', 'no type':'#c9d1d9' }
+// same hues as the Type field on the board, toned down: this bar is read as a proportion,
+// not as a warning light
+const TYPE_COLOR = { Story:'#8fd0a0', Task:'#9dc2f0', Bug:'#f0a8a8', Defect:'#f2c295',
+                     Epic:'#c4b0ea', 'no type':'#d8dee4' }
 
 // Thai public holidays. The lunar ones (Makha, Visakha, Asarnha, Khao Phansa) move every year,
 // so check them against the Bank of Thailand calendar before rolling this list forward.
@@ -206,11 +207,12 @@ const HOLIDAYS = new Set([
   '2026-07-30','2026-08-12','2026-10-13','2026-10-23','2026-12-07','2026-12-10','2026-12-31'
 ])
 
-let windowDays = 30        // how far back closed releases are shown; the Show older button grows it
+let windowDays = 14        // how long a closed release stays on the page; Show older grows it
 
 const MS_FIELDS = `
-  number title dueOn createdAt
-  issues(first:100){
+  number title dueOn createdAt closedAt
+  issues(first:$iss){
+    totalCount
     nodes{
       number state
       issueType{ name }
@@ -222,18 +224,29 @@ const MS_FIELDS = `
   }`
 
 // Open and closed are fetched separately on purpose: asking for both in one query goes over
-// GitHub's resource limit and the whole request fails. Every milestone that could ever be shown
-// is fetched, so "Show older" never refetches and a release always keeps its real start date.
+// GitHub's resource limit and the whole request fails.
+//
+// The hourly budget is 5000 points and a query costs about (milestones x issues) / 50 points,
+// so the page sizes below are the real cost control. Nothing else in the query moves the price.
+// Closed milestones start small because only the last two weeks are drawn; Show older asks for
+// more of them, once, on demand.
+const OPEN_MS = 30            // biggest repo has 20 open milestones today
+const ISSUES  = 70            // biggest milestone ever had 64 cards
+// zai-backend closed 12 milestones inside one 14 day window, so 10 was already too few
+let closedMs  = 20            // grows when Show older is pressed
+const RATE_HEAD = `rateLimit{ remaining resetAt }`
 const Q_OPEN = `
-query($owner:String!,$name:String!){
+query($owner:String!,$name:String!,$ms:Int!,$iss:Int!){
+  ${RATE_HEAD}
   repository(owner:$owner,name:$name){
-    milestones(first:40, states:OPEN){ nodes{ ${MS_FIELDS} } }
+    milestones(first:$ms, states:OPEN){ nodes{ ${MS_FIELDS} } }
   }
 }`
 const Q_CLOSED = `
-query($owner:String!,$name:String!){
+query($owner:String!,$name:String!,$ms:Int!,$iss:Int!){
+  ${RATE_HEAD}
   repository(owner:$owner,name:$name){
-    milestones(first:40, states:CLOSED, orderBy:{field:DUE_DATE, direction:DESC}){ nodes{ ${MS_FIELDS} } }
+    milestones(first:$ms, states:CLOSED, orderBy:{field:DUE_DATE, direction:DESC}){ nodes{ ${MS_FIELDS} } }
   }
 }`
 
@@ -246,22 +259,42 @@ const TOMORROW = new Date(Date.now() + 864e5).toISOString().slice(0,10)
 const pretty = s => new Date(s + 'T00:00:00Z')
   .toLocaleDateString('en-GB', { day:'numeric', month:'short', timeZone:'UTC' })
 
-async function ask(query, name) {
+let rate = null                          // what GitHub last told us about the hourly budget
+
+async function ask(query, name, ms) {
   const res = await fetch('https://api.github.com/graphql', {
     method:'POST',
     headers:{ 'Authorization':'Bearer ' + token(), 'Content-Type':'application/json' },
-    body: JSON.stringify({ query, variables:{ owner:OWNER, name } })
+    body: JSON.stringify({ query, variables:{ owner:OWNER, name, ms, iss:ISSUES } })
   })
   if (res.status === 401) throw new Error('Token rejected. Make a new one and paste it again.')
   const json = await res.json()
-  if (json.errors) throw new Error(json.errors[0].message)
+  if (json.data && json.data.rateLimit) rate = json.data.rateLimit
+  if (json.errors) {
+    const e = json.errors[0]
+    if (e.type === 'RATE_LIMITED' || /rate limit/i.test(e.message)) {
+      const back = rate && rate.resetAt ? new Date(rate.resetAt).toLocaleTimeString() : 'soon'
+      throw new Error('GitHub hourly API budget is used up. It comes back at ' + back
+        + '. The page is showing the last data it loaded.')
+    }
+    throw new Error(e.message)
+  }
   const repo = json.data && json.data.repository
   if (!repo) throw new Error('No access to ' + name + '. Check the token scopes and SSO.')
   return repo.milestones.nodes
 }
 
+let truncated = []                       // milestones holding more cards than one page returns
+let capped = []                          // repos where the milestone page came back full
+
 async function fetchRepo(name) {
-  const [open, closed] = await Promise.all([ask(Q_OPEN, name), ask(Q_CLOSED, name)])
+  const [open, closed] = await Promise.all([ask(Q_OPEN, name, OPEN_MS), ask(Q_CLOSED, name, closedMs)])
+  for (const m of [...open, ...closed]) {
+    if (m.issues.totalCount > m.issues.nodes.length) truncated.push(name + ' ' + m.title)
+  }
+  // a full page means there is probably more behind it, and staying quiet about that would
+  // read as "this is everything"
+  if (open.length === OPEN_MS || closed.length === closedMs) capped.push(name)
   return [
     ...open.map(m => ({ ...m, repo:name, isClosed:false })),
     ...closed.map(m => ({ ...m, repo:name, isClosed:true }))
@@ -274,10 +307,12 @@ function build(all) {
   const by = new Map()
   for (const m of all) {
     if (!by.has(m.title)) by.set(m.title, { title:m.title, due:day(m.dueOn), born:day(m.createdAt),
-                                            issues:[], refs:[], closed:true })
+                                            issues:[], refs:[], closed:true, closedAt:null })
     const row = by.get(m.title)
     if (day(m.dueOn) < row.due) row.due = day(m.dueOn)
     if (day(m.createdAt) < row.born) row.born = day(m.createdAt)
+    // the last repo to close it is when the release really ended
+    if (m.closedAt && (!row.closedAt || day(m.closedAt) > row.closedAt)) row.closedAt = day(m.closedAt)
     if (!m.isClosed) row.closed = false        // open anywhere means the release is still open
     // every repo copy of this title, so one drag can move them all together
     row.refs.push({ repo:m.repo, number:m.number, dueOn:m.dueOn, closed:m.isClosed })
@@ -339,7 +374,7 @@ function build(all) {
     out.push({
       title: row.title, name: cleanTitle(row.title), refs: row.refs,
       due: row.due, start, end: endDate,
-      startedAt, lastDone, late, born: row.born,
+      startedAt, lastDone, late, born: row.born, closedAt: row.closedAt,
       state: row.closed ? 'closed' : late ? 'slipped' : startedAt ? 'running' : 'upcoming',
       barStart: start < endDate ? start : endDate,
       barEnd:   start < endDate ? endDate : start,
@@ -354,8 +389,9 @@ function build(all) {
 }
 
 const cleanTitle = t => t.replace(/^\[Closed on \d{8}\]\s*/, '').replace(/^\d{8}\s*/, '').trim()
+// a closed release drops off the page once it has been closed for longer than the window
 const inWindow = r => r.state !== 'closed' ||
-  r.end >= new Date(Date.now() - windowDays * 864e5).toISOString().slice(0,10)
+  (r.closedAt || r.end) >= new Date(Date.now() - windowDays * 864e5).toISOString().slice(0,10)
 
 const STATE_LABEL = { upcoming:'upcoming', running:'in progress', slipped:'slipped', closed:'closed' }
 
@@ -474,7 +510,8 @@ function drawTimeline(rows) {
         majorLabels: { day:'MMMM YYYY', weekday:'MMMM YYYY', week:'MMMM YYYY', month:'YYYY' }
       }
     })
-    timeline.on('doubleClick', props => {               // the milestone name on the left is a link too
+    timeline.on('rangechanged', tuneAxis)
+    timeline.on('doubleClick', props => {             // the milestone name on the left is a link too
       const it = props.item != null && items.get(props.item)
       if (it && it.url) window.open(it.url, '_blank', 'noopener')
     })
@@ -537,7 +574,21 @@ function drawTimeline(rows) {
   }
   // open on the whole road ahead: a week before today, out to the last future release
   if (firstDraw) { firstDraw = false; showFuture(shown) }
+  tuneAxis()
   $('windowLabel').textContent = 'past: last ' + windowDays + ' days · future: all'
+}
+
+// Every day gets its own grid line while there is room to print the number. Only when the
+// window is very wide do the lines drop back to one a week, then one a month.
+let axisScale = null
+function tuneAxis() {
+  if (!timeline) return
+  const w = timeline.getWindow()
+  const px = ($('tl').clientWidth - 250) / ((w.end - w.start) / 864e5)   // pixels per day
+  const want = px >= 13 ? 'day' : px >= 2.6 ? 'week' : 'month'
+  if (want === axisScale) return
+  axisScale = want
+  timeline.setOptions({ timeAxis: { scale: want, step: 1 } })
 }
 
 function showFuture(shown) {
@@ -615,7 +666,7 @@ $('askGo').onclick = async () => {
   try {
     for (const t of targets) await setDue(t, due, title)   // one at a time, so an error names the repo
     cancelAsk()
-    await load()
+    await load(true)                                       // the cache is now wrong, refetch
   } catch (e) {
     $('askText').innerHTML = '<span class="err">' + esc(e.message) + '</span>'
     $('askGo').disabled = false
@@ -654,11 +705,19 @@ function toMermaid(rows) {
 }
 
 /* ---- ratio bars ---- */
+// Off: every bar is as wide as the release has cards, so a big release looks big next to a
+// small one. On: every bar fills the column, which compares the mix and hides the size.
+let full = localStorage.getItem('fullBars') === '1'
+let maxCards = 1
+const widthOf = base => full ? base + 'px'
+  : Math.max(16, Math.round(base * scaleRow / maxCards)) + 'px'
+let scaleRow = 1                       // the card count of the row being drawn right now
+
 const hue = s => { let h = 0; for (const c of s) h = (h * 31 + c.charCodeAt(0)) % 360; return h }
 function peopleBar(list) {
   if (!list.length) return '<span class="muted">-</span>'
   const total = list.reduce((s, p) => s + p.n, 0)
-  return '<span class="ratio">' + list.map(p => {
+  return '<span class="ratio" style="width:' + widthOf(170) + '">' + list.map(p => {
     const w = p.n / total * 100
     const tip = '<img src="' + esc(p.avatar) + '&s=32">' + esc(p.login)
       + ' &middot; ' + p.n + ' cards &middot; ' + Math.round(w) + '%'
@@ -669,7 +728,8 @@ function peopleBar(list) {
 }
 function typeBar(r) {
   if (!r.total) return '<span class="muted">-</span>'
-  return '<span class="ratio">' + Object.entries(r.types).sort((a,b) => b[1] - a[1]).map(([t, n]) => {
+  return '<span class="ratio" style="width:' + widthOf(170) + '">'
+    + Object.entries(r.types).sort((a,b) => b[1] - a[1]).map(([t, n]) => {
     const w = n / r.total * 100
     const tip = '<b>' + esc(t) + '</b> &middot; ' + n + ' cards &middot; ' + Math.round(w) + '%'
     return '<span class="seg" style="width:' + w.toFixed(2) + '%;background:'
@@ -688,7 +748,7 @@ function progressCell(r) {
   const timeTip = '<b>Time</b> ' + Math.round(r.timePct) + '% gone &middot; '
     + pretty(r.start) + ' to ' + pretty(r.due)
     + (behind ? '<br>time is ahead of the cards' : '')
-  return '<div class="prog">'
+  return '<div class="prog" style="width:' + widthOf(150) + '">'
     + '<span class="pbar">' + segs + '</span>'
     + '<span class="pbar" data-tip="' + esc(timeTip) + '">'
     +   '<i class="time' + (behind ? ' behind' : '') + '" style="width:' + r.timePct.toFixed(1) + '%"></i></span>'
@@ -721,13 +781,17 @@ function drawTable() {
     const x = col.val(a), y = col.val(b)
     return (x < y ? -1 : x > y ? 1 : 0) * sortDir
   })
+  maxCards = Math.max(1, ...rowsCache.filter(inWindow).map(r => r.total))
   const head = '<tr>' + COLS.map(c =>
     '<th data-k="' + c.k + '" class="' + (c.k === sortKey ? 'sorted' : '') + '">' + c.h
     + ' <span class="arrow">' + (c.k === sortKey ? (sortDir > 0 ? '&#9650;' : '&#9660;') : '&#9670;')
     + '</span></th>').join('') + '</tr>'
-  const body = sorted.map(r => '<tr class="' + (r.state === 'closed' ? 'closed' : '') + '">'
-    + COLS.map(c => '<td' + (c.k === 'last' && r.late ? ' class="late"' : '') + '>' + c.cell(r) + '</td>').join('')
-    + '</tr>').join('')
+  const body = sorted.map(r => {
+    scaleRow = r.total                     // every bar in this row is sized by its card count
+    return '<tr class="' + (r.state === 'closed' ? 'closed' : '') + '">'
+      + COLS.map(c => '<td' + (c.k === 'last' && r.late ? ' class="late"' : '') + '>' + c.cell(r) + '</td>').join('')
+      + '</tr>'
+  }).join('')
   $('table').innerHTML = head + body
   $('table').querySelectorAll('th').forEach(th => th.onclick = () => {
     const k = th.dataset.k
@@ -754,8 +818,11 @@ $('today').onclick   = () => timeline && timeline.moveTo(new Date())
 $('fit').onclick     = () => showFuture()
 $('fitAllTime').onclick = () => timeline && timeline.fit()
 $('older').onclick = () => {
-  windowDays = windowDays >= 3650 ? 30 : windowDays * 3
-  drawTimeline(rowsCache); drawTable()
+  if (windowDays >= 3650) { windowDays = 14; closedMs = 20; load(true); return }
+  windowDays = windowDays * 4
+  // closed milestones are fetched a page at a time, so reaching further back costs one more load
+  const want = Math.min(80, 20 + Math.round(windowDays / 7))
+  if (want > closedMs) { closedMs = want; load(true) } else { drawTimeline(rowsCache); drawTable() }
 }
 $('mmdCopy').onclick = async () => {
   await navigator.clipboard.writeText(toMermaid(rowsCache))
@@ -770,40 +837,90 @@ $('mmdSave').onclick = () => {
 }
 
 /* ---- load ---- */
-async function load() {
+// The built rows are kept in this browser so a reload, or a second tab, paints at once and
+// spends nothing. Only a stale cache, the Refresh button or Show older costs API budget.
+const CACHE = 'roadmapRows'
+function saveCache() {
+  try { localStorage.setItem(CACHE, JSON.stringify({ at:Date.now(), closedMs, rows:rowsCache })) }
+  catch (e) { /* browser storage full, the page still works */ }
+}
+function readCache() {
+  try { return JSON.parse(localStorage.getItem(CACHE) || 'null') } catch (e) { return null }
+}
+
+function paint(when) {
+  drawTable()
+  drawTimeline(rowsCache)
+  const shown = rowsCache.filter(inWindow)
+  const n = s => shown.filter(r => r.state === s).length
+  const devs = new Set(shown.flatMap(r => r.devs.map(p => p.login))).size
+  const qas  = new Set(shown.flatMap(r => r.qas.map(p => p.login))).size
+  $('stamp').textContent = 'updated ' + new Date(when).toLocaleTimeString()
+    + ' · ' + shown.length + ' releases · ' + devs + ' devs · ' + qas + ' QAs'
+    + (n('slipped') ? ' · ' + n('slipped') + ' slipped' : '')
+    + (rate ? ' · API budget ' + rate.remaining + '/5000' : '')
+    + (truncated.length ? ' · card count is short on ' + truncated.join(', ') : '')
+    + (capped.length ? ' · more releases exist behind ' + capped.join(', ')
+        + ', press Show older' : '')
+}
+
+let loading = false
+async function load(force) {
   if (!token()) { $('gate').style.display = 'block'; $('tl').textContent = ''; return }
   $('gate').style.display = 'none'
+  const cached = readCache()
+  if (!force && cached && cached.closedMs >= closedMs && Date.now() - cached.at < REFRESH_MS) {
+    rowsCache = cached.rows
+    paint(cached.at)
+    return
+  }
+  if (loading) return
+  loading = true
   try {
+    truncated = []; capped = []
     const all = (await Promise.all(REPOS.map(fetchRepo))).flat()
     rowsCache = build(all)
-    drawTable()
-    drawTimeline(rowsCache)
-    const shown = rowsCache.filter(inWindow)
-    const n = s => shown.filter(r => r.state === s).length
-    const devs = new Set(shown.flatMap(r => r.devs.map(p => p.login))).size
-    const qas  = new Set(shown.flatMap(r => r.qas.map(p => p.login))).size
-    $('stamp').textContent = 'updated ' + new Date().toLocaleTimeString()
-      + ' · ' + shown.length + ' releases · ' + devs + ' devs · ' + qas + ' QAs'
-      + (n('slipped') ? ' · ' + n('slipped') + ' slipped' : '')
+    saveCache()
+    paint(Date.now())
   } catch (e) {
-    $('tl').innerHTML = '<p class="err" style="padding:16px">' + esc(e.message) + '</p>'
+    if (cached) {                              // keep the old picture rather than an empty page
+      rowsCache = cached.rows
+      paint(cached.at)
+      $('stamp').innerHTML += ' · <span class="err">' + esc(e.message) + '</span>'
+    } else {
+      $('tl').innerHTML = '<p class="err" style="padding:16px">' + esc(e.message) + '</p>'
+    }
     if (/rejected|access/i.test(e.message)) { $('gate').style.display = 'block'; $('gateErr').textContent = e.message }
-  }
+  } finally { loading = false }
 }
 
 $('legend').innerHTML = Object.keys(REPO_COLOR).map(k =>
   '<span class="key"><i style="background:' + REPO_COLOR[k] + '"></i>' + REPO_SHORT[k] + '</span>').join('')
   + '<span class="key"><i style="background:#c6cdd5"></i>closed</span>'
   + '<span class="key"><i style="background:#fff;border:2px solid #e16f24"></i>slipped</span>'
+function paintFull() {
+  $('full').textContent = (full ? '☑' : '☐') + ' Show to 100%'
+  $('full').title = full
+    ? 'Every bar fills the column, so the mix is easy to compare'
+    : 'Bar width follows the number of cards, so a big release looks big'
+}
+$('full').onclick = () => {
+  full = !full
+  localStorage.setItem('fullBars', full ? '1' : '0')
+  paintFull(); drawTable()
+}
+paintFull()
+
 $('statusKey').innerHTML = BOARD.map(b =>
   '<span class="key"><i style="background:' + b.c + '"></i>' + b.short + '</span>').join('')
 
 $('save').onclick = () => { localStorage.setItem('ghToken', $('token').value.trim()); $('token').value = ''; load() }
 $('token').onkeydown = e => { if (e.key === 'Enter') $('save').click() }
 $('search').oninput = drawTable
-$('refresh').onclick = load
+$('refresh').onclick = () => load(true)
 $('forget').onclick = () => { localStorage.removeItem('ghToken'); location.reload() }
-setInterval(load, REFRESH_MS)
+// only refresh while the tab is actually being looked at, so a forgotten tab costs nothing
+setInterval(() => { if (!document.hidden) load(true) }, REFRESH_MS)
 load()
 </script>
 </body>
