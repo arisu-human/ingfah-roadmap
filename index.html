@@ -103,6 +103,10 @@
   .pbar i.time  { background:#8c959f }
   .pbar i.time.behind { background:#f59e0b }
 
+  /* The cursor line follows the pointer, so it always sits exactly under it. Without
+     pointer-events:none every press lands on this 2px bar (vis even starts dragging the bar
+     itself), and the gantt bar behind it never receives the due date drag or the pan. */
+  .vis-custom-time.cursor, .vis-custom-time.cursor *, .vis-current-time { pointer-events:none; }
   .vis-custom-time.cursor { background:#0969da; width:2px; }
   .vis-custom-time.cursor > .vis-custom-time-marker { background:#0969da; color:#fff; font-size:11px;
              font-weight:600; padding:2px 7px; border-radius:4px; top:2px; }
