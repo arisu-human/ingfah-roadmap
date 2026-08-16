@@ -183,14 +183,16 @@ const WORKING = new Set(['In Progress','Review (Dev tested carefully)','Review',
                          STATUS_READY, STATUS_DONE])
 
 // the Status field of the board, in board order, with the colour the board gives each option
+// The colour name matches the board option, but the tone is Primer's soft step, not the loud
+// text tone. A bar is read as a proportion, so it wants the same weight as a status pill.
 const BOARD = [
-  { s:'Backlog',                       c:'#6e7781', short:'Backlog' },
-  { s:'To Do',                         c:'#0969da', short:'To Do' },
-  { s:'In Progress',                   c:'#bf8700', short:'In Progress' },
-  { s:'Review (Dev tested carefully)', c:'#cf222e', short:'Review' },
-  { s:'Not Ready for Test',            c:'#bc4c00', short:'Not Ready for Test' },
-  { s:'Ready for Test',                c:'#8250df', short:'Ready for Test' },
-  { s:'Done',                          c:'#1a7f37', short:'Done' }
+  { s:'Backlog',                       c:'#afb8c1', short:'Backlog' },              // gray
+  { s:'To Do',                         c:'#80ccff', short:'To Do' },                // blue
+  { s:'In Progress',                   c:'#f2cc60', short:'In Progress' },          // yellow
+  { s:'Review (Dev tested carefully)', c:'#ff9492', short:'Review' },               // red
+  { s:'Not Ready for Test',            c:'#ffb77c', short:'Not Ready for Test' },   // orange
+  { s:'Ready for Test',                c:'#c297ff', short:'Ready for Test' },       // purple
+  { s:'Done',                          c:'#4ac26b', short:'Done' }                  // green
 ]
 const STATUS_COLOR = {}, STATUS_SHORT = {}
 for (const b of BOARD) { STATUS_COLOR[b.s] = b.c; STATUS_SHORT[b.s] = b.short }
