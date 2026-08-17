@@ -228,6 +228,19 @@
   .sk-row { display:flex; align-items:center; height:23px; border-bottom:1px solid #eef1f4; }
   .sk-lab { flex:0 0 280px; padding:0 14px; border-right:1px solid var(--hairline); }
   .sk-track { flex:1 1 auto; padding:0 12px; overflow:hidden; }
+  /* toasts */
+  #toasts { position:fixed; right:20px; bottom:20px; z-index:20; display:flex;
+            flex-direction:column; gap:8px; align-items:flex-end; }
+  @keyframes toastIn { from { opacity:0; transform:translateY(8px) } to { opacity:1; transform:none } }
+  .toast { max-width:440px; padding:10px 14px; border-radius:12px; cursor:pointer;
+           font-size:13px; line-height:1.4; color:#fff; background:var(--ink);
+           border-left:4px solid var(--soft-muted);
+           box-shadow:0 8px 22px rgba(24,29,38,.22), 0 2px 6px rgba(24,29,38,.14);
+           animation:toastIn .18s ease-out; }
+  .toast.ok  { border-left-color:#39bf45; }
+  .toast.err { border-left-color:#ff8182; }
+  .toast.out { opacity:0; transition:opacity .2s; }
+  @media (prefers-reduced-motion:reduce) { .toast { animation:none } }
   .err { color:#b62324; }
   #gate { display:none; }
 </style>
@@ -325,12 +338,13 @@ for (const b of BOARD) { STATUS_COLOR[b.s] = b.c; STATUS_SHORT[b.s] = b.short }
 const DONE_FIRST = [...BOARD].reverse()
 const DONE_FIRST_KEYS = DONE_FIRST.map(b => b.s)
 
-// One colour per repo, used only by the pies now. Status and type both live in soft pastels,
-// so repo gets a deliberately different register: deep saturated jewel tones. A dark segment
-// cannot be mistaken for a pastel one whatever the hue. Three are the signature card colours
-// from DESIGN.md.
-const REPO_COLOR = { 'zai-backend':'#123a7a', 'zai-frontend':'#0a2e0e', 'zai-bo-frontend':'#aa2d00',
-                     'ingfah-rag':'#7a1f5c', 'ingfah-dev-docs':'#0e7490', 'zai-docs':'#7a5c00' }
+// One colour per repo, used only by the pies. Two things had to be true at once: the slices
+// must be easy to tell apart from EACH OTHER in a 26px circle, and none may read as a status.
+// Chosen by search rather than by eye (roadmap-tools/pie-palette.mjs): closest two repos are
+// 47 apart in Lab space, closest repo to any status or type colour is 34.6, and 30 is the
+// point where two colours stop being confusable. Several are Okabe-Ito colourblind-safe hues.
+const REPO_COLOR = { 'zai-backend':'#0072B2', 'zai-frontend':'#D55E00', 'zai-bo-frontend':'#b3123c',
+                     'ingfah-rag':'#6b2d8f', 'ingfah-dev-docs':'#4a6b00', 'zai-docs':'#00695c' }
 const REPO_SHORT = { 'zai-backend':'BE', 'zai-frontend':'FE', 'zai-bo-frontend':'FE B/O',
                      'ingfah-rag':'RAG', 'ingfah-dev-docs':'DOCS', 'zai-docs':'ZDOCS' }
 
@@ -870,6 +884,20 @@ function showFuture(shown) {
   timeline.setWindow(plus(today, -7), plus(hi, 7), { animation:false })
 }
 
+/* ---- toast ---- */
+// textContent, never innerHTML: these carry repo names and raw GitHub messages
+function toast(msg, kind) {
+  let box = $('toasts')
+  if (!box) { box = elem('div'); box.id = 'toasts'; document.body.appendChild(box) }
+  const t = elem('div', 'toast ' + (kind || 'info'))
+  t.textContent = msg
+  const close = () => { t.classList.add('out'); setTimeout(() => t.remove(), 200) }
+  t.onclick = close
+  box.appendChild(t)
+  // an error stays long enough to read and copy; a success gets out of the way
+  setTimeout(close, kind === 'err' ? 12000 : 4000)
+}
+
 /* ---- drag the right edge of a bar to move the due date ---- */
 let pending = null, renameTo = null, renameOn = false
 const prettyDue = d => d ? pretty(d) : 'no due date'
@@ -887,8 +915,15 @@ function paintRename() {
 $('askRename').onclick = () => { renameOn = !renameOn; paintRename() }
 
 function askConfirm(r, newDue) {
-  const targets = r.refs.filter(f => !f.closed)      // never reschedule a closed milestone
-  if (newDue === r.due || !targets.length) return cancelAsk(true)
+  const targets = (r.refs || []).filter(f => !f.closed)   // never reschedule a closed milestone
+  // Both of these used to just put the bar back and say nothing, which looked like the drag
+  // had worked. Say what happened instead.
+  if (!r.refs) { cancelAsk(true); return toast('This release was drawn from an old cached copy '
+    + 'that has no milestone ids. Press Refresh, then drag again.', 'err') }
+  if (!targets.length) { cancelAsk(true); return toast(r.name
+    + ' is closed in every repo, so there is no open milestone to move.', 'err') }
+  if (newDue === r.due) { cancelAsk(true)
+    return toast('Dropped back on ' + pretty(newDue) + ', so nothing changed.', 'info') }
   renameTo = r.due && r.title.startsWith(stampOf(r.due))
     ? stampOf(newDue) + r.title.slice(8) : null
   renameOn = !!renameTo
@@ -914,17 +949,35 @@ async function setDue(ref, due, title) {
   const at = ref.dueOn ? ref.dueOn.slice(10) : 'T12:00:00Z'     // keep the time of day already in use
   const body = { due_on: due + at }
   if (title) body.title = title
-  const res = await fetch('https://api.github.com/repos/' + OWNER + '/' + ref.repo
-    + '/milestones/' + ref.number, {
-    method: 'PATCH',
-    headers: { 'Authorization':'Bearer ' + token(), 'Accept':'application/vnd.github+json',
-               'Content-Type':'application/json' },
-    body: JSON.stringify(body)
-  })
-  if (!res.ok) {
-    const j = await res.json().catch(() => ({}))
-    throw new Error(ref.repo + ' #' + ref.number + ': ' + (j.message || res.status))
-  }
+  const where = ref.repo + ' #' + ref.number
+  let res
+  try {
+    res = await fetch('https://api.github.com/repos/' + OWNER + '/' + ref.repo
+      + '/milestones/' + ref.number, {
+      method: 'PATCH',
+      headers: { 'Authorization':'Bearer ' + token(), 'Accept':'application/vnd.github+json',
+                 'Content-Type':'application/json' },
+      body: JSON.stringify(body)
+    })
+  } catch (e) { throw new Error(where + ': the request never reached GitHub (' + e.message + ')') }
+
+  const j = await res.json().catch(() => ({}))
+  // GitHub answers 404, not 403, when a token may read a private repo but not write it, so
+  // say what that really means instead of passing "Not Found" through
+  if (res.status === 403 || res.status === 404) throw new Error(where + ': your token cannot '
+    + 'change this milestone (HTTP ' + res.status + '). It needs the classic repo scope, write '
+    + 'access to ' + ref.repo + ', and SSO authorised for ' + OWNER + '.')
+  if (!res.ok) throw new Error(where + ': HTTP ' + res.status
+    + (j.message ? ' ' + j.message : '') + (j.errors ? ' ' + JSON.stringify(j.errors) : ''))
+
+  // A 200 is not proof the value stuck. Read the milestone back out of the reply and check.
+  // This is what turns a silent no-op into something you can see.
+  const got = (j.due_on || '').slice(0, 10)
+  if (got !== due) throw new Error(where + ': GitHub accepted the change but the due date came '
+    + 'back as ' + (got || 'empty') + ', not ' + due)
+  if (title && j.title !== title) throw new Error(where + ': the due date moved but the title '
+    + 'came back as "' + j.title + '", not "' + title + '"')
+  return where
 }
 
 $('askNo').onclick = () => cancelAsk(true)
@@ -934,14 +987,21 @@ $('askGo').onclick = async () => {
   const title = renameOn ? renameTo : null
   $('askGo').disabled = true
   $('askGo').textContent = 'Saving...'
+  const won = []
   try {
-    for (const t of targets) await setDue(t, due, title)   // one at a time, so an error names the repo
+    for (const t of targets) won.push(await setDue(t, due, title))  // one at a time, so a failure names the repo
+    localStorage.removeItem(CACHE)     // a refresh must never trust the old dates again
     cancelAsk()
-    await load(true)                                       // the cache is now wrong, refetch
+    toast('Due date moved to ' + pretty(due) + ' · ' + won.join(', ')
+      + (title ? ' · renamed to ' + title.slice(0, 8) : ''), 'ok')
+    await load(true)
   } catch (e) {
-    $('askText').innerHTML = '<span class="err">' + esc(e.message) + '</span>'
+    // a partial write is the dangerous case: say which repos already changed
+    const msg = e.message + (won.length ? ' — already changed: ' + won.join(', ') : '')
+    $('askText').innerHTML = '<span class="err">' + esc(msg) + '</span>'
     $('askGo').disabled = false
     $('askGo').textContent = 'Try again'
+    toast(msg, 'err')
   }
 }
 
@@ -1008,11 +1068,15 @@ function repoPie(list, what) {
   for (const c of list) counts[c.repo] = (counts[c.repo] || 0) + 1
   const parts = Object.entries(counts).sort((a, b) => b[1] - a[1])
   let acc = 0
+  // a thin white wedge between slices, so two neighbours never blur into one shape
+  const gap = parts.length > 1 ? 1.6 : 0
   const stops = parts.map(([k, n]) => {
     const from = acc / list.length * 360
     acc += n
-    return (REPO_COLOR[k] || '#8b949e') + ' ' + from.toFixed(2) + 'deg '
-      + (acc / list.length * 360).toFixed(2) + 'deg'
+    const to = acc / list.length * 360
+    const col = REPO_COLOR[k] || '#8b949e'
+    return col + ' ' + from.toFixed(2) + 'deg ' + Math.max(from, to - gap).toFixed(2) + 'deg,'
+      + '#fff ' + Math.max(from, to - gap).toFixed(2) + 'deg ' + to.toFixed(2) + 'deg'
   }).join(',')
   const tip = '<b>' + esc(what) + ' &middot; ' + list.length + ' cards</b><br>'
     + parts.map(([k, n]) => '<i class="dot" style="background:' + (REPO_COLOR[k] || '#8b949e') + '"></i>'
