@@ -1,7 +1,7 @@
 // Every way a due-date write can fail must produce a visible message, never a silent no-op.
 // Pulls the real setDue out of index.html and runs it against stubbed GitHub replies.
 import fs from 'fs'
-const html = fs.readFileSync('ingfah-roadmap/index.html', 'utf8')
+const html = fs.readFileSync(new URL('../ingfah-roadmap/index.html', import.meta.url), 'utf8')
 const js = html.match(/<script type="module">([\s\S]*?)<\/script>/)[1]
 const src = js.match(/async function setDue[\s\S]*?\n\}/)[0]
 

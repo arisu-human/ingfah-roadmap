@@ -463,6 +463,12 @@ function build(all) {
     if (!by.has(m.title)) by.set(m.title, { title:m.title, due:day(m.dueOn), born:day(m.createdAt),
                                             issues:[], refs:[], closed:true, closedAt:null })
     const row = by.get(m.title)
+    // A closed copy in one repo must not pin the deadline of a release that is still open
+    // elsewhere: dragging only ever writes to the open copies, so an older closed date would
+    // hold the displayed due date back for good. Among open copies the earliest still wins.
+    if (!m.isClosed && (row.openDue === undefined || day(m.dueOn) < row.openDue)) {
+      row.openDue = day(m.dueOn)
+    }
     if (day(m.dueOn) < row.due) row.due = day(m.dueOn)
     if (day(m.createdAt) < row.born) row.born = day(m.createdAt)
     // the last repo to close it is when the release really ended
@@ -479,6 +485,7 @@ function build(all) {
   const out = []
   for (const row of by.values()) {
     if (!row.issues.length) continue          // nothing left after Epics were removed
+    if (row.openDue !== undefined) row.due = row.openDue   // open copies decide an open release
     const events = row.issues.flatMap(i => i.timelineItems.nodes)
 
     // Start of work = the first time any card LEFT "To Do", whatever it went to.
@@ -928,7 +935,7 @@ function askConfirm(r, newDue) {
     ? stampOf(newDue) + r.title.slice(8) : null
   renameOn = !!renameTo
   paintRename()
-  pending = { due:newDue, targets }
+  pending = { due:newDue, targets, titleBefore:r.title }
   $('askText').innerHTML = 'Move <b>' + esc(r.name) + '</b> due date from ' + prettyDue(r.due)
     + ' to <b>' + pretty(newDue) + '</b>?'
   $('askRepos').textContent = 'changes ' + targets.map(t => t.repo + ' #' + t.number).join(', ')
@@ -983,8 +990,9 @@ async function setDue(ref, due, title) {
 $('askNo').onclick = () => cancelAsk(true)
 $('askGo').onclick = async () => {
   if (!pending) return
-  const { due, targets } = pending
+  const { due, targets, titleBefore } = pending
   const title = renameOn ? renameTo : null
+  const finalTitle = title || titleBefore
   $('askGo').disabled = true
   $('askGo').textContent = 'Saving...'
   const won = []
@@ -992,9 +1000,22 @@ $('askGo').onclick = async () => {
     for (const t of targets) won.push(await setDue(t, due, title))  // one at a time, so a failure names the repo
     localStorage.removeItem(CACHE)     // a refresh must never trust the old dates again
     cancelAsk()
-    toast('Due date moved to ' + pretty(due) + ' · ' + won.join(', ')
-      + (title ? ' · renamed to ' + title.slice(0, 8) : ''), 'ok')
-    await load(true)
+    await load(true)                   // straight from GitHub, the cache is gone by now
+
+    // Close the loop. The write is confirmed and the data is freshly fetched, so if the page
+    // still shows the old date something between the two is wrong and it must be said out
+    // loud rather than looking like the drag quietly did nothing.
+    const row = rowsCache.find(r => r.title === finalTitle)
+    if (!row) {
+      toast('Saved on GitHub (' + won.join(', ') + '), but that release is not in the loaded '
+        + 'window any more, so it is not on screen.', 'info')
+    } else if (row.due !== due) {
+      toast('GitHub stored ' + pretty(due) + ', but the reloaded page shows ' + pretty(row.due)
+        + '. Another repo carrying the same milestone name is still on the older date.', 'err')
+    } else {
+      toast('Due date moved to ' + pretty(due) + ' · ' + won.join(', ')
+        + (title ? ' · renamed to ' + title.slice(0, 8) : ''), 'ok')
+    }
   } catch (e) {
     // a partial write is the dangerous case: say which repos already changed
     const msg = e.message + (won.length ? ' — already changed: ' + won.join(', ') : '')
