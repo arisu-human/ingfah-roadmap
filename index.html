@@ -76,6 +76,24 @@
   .vis-item .vis-item-content { padding:0; width:100%; }
   .vis-item.st-slipped { border-color:#e16f24; border-width:2px; }
   .vis-item.st-closed  { background:#f0f2f5; border-color:#d8dee4; }
+  /* a dashed edge says the start date is a plan, not something that has happened */
+  .vis-item.planned { border-style:dashed; }
+  /* this sprint, in the same teal as the sprint pane */
+  @keyframes sprintGlow {
+    0%,100% { box-shadow:0 0 0 1.5px rgba(0,187,167,.75), 0 0 9px 1px rgba(0,187,167,.40) }
+    50%     { box-shadow:0 0 0 1.5px rgba(0,187,167,.95), 0 0 15px 3px rgba(0,187,167,.62) }
+  }
+  .vis-item.in-sprint { border-color:#00BBA7;
+                        animation:sprintGlow 2.4s ease-in-out infinite; }
+  @media (prefers-reduced-motion:reduce) {
+    .vis-item.in-sprint { animation:none;
+      box-shadow:0 0 0 1.5px rgba(0,187,167,.9), 0 0 12px 2px rgba(0,187,167,.5); }
+  }
+  .tick { cursor:pointer; user-select:none; font-size:15px; line-height:1; color:var(--soft-muted);
+          padding:2px 4px; border-radius:6px; display:inline-block; }
+  .tick:hover { color:var(--ink); background:var(--surface-soft); }
+  .tick.on { color:#009181; }
+  .tick:focus-visible { outline:2px solid var(--focus); outline-offset:1px; }
 
   /* one equal block per card: fill = card type, stripe underneath = repo */
   /* 19px block with a 2px item margin is the same 23px row as a 17px block with 3px */
@@ -160,6 +178,7 @@
   /* the three columns Eddie reads most get the room; the rest give it up */
   .col-prog, .col-build, .col-fix { padding-left:14px; padding-right:14px; }
   .col-state, .col-devs, .col-qas { padding-left:8px; padding-right:8px; }
+  .col-sprint { padding-left:4px; padding-right:4px; text-align:center; }
   .dates { font-variant-numeric:tabular-nums; }
   .dates .late { color:var(--late); font-weight:500; }
   th { color:var(--muted); font-weight:500; cursor:pointer; user-select:none; position:sticky; top:0;
@@ -555,6 +574,57 @@ function build(all) {
   return out.sort((a,b) => a.end.localeCompare(b.end) || a.due.localeCompare(b.due))
 }
 
+/* ---- this sprint: planning the releases that have not started yet ---- */
+// Only a release that has never left To Do can be planned. One that has really started keeps
+// the date it really started on, ticked or not: that is a fact, not a plan.
+let thisSprint = new Set()
+try { thisSprint = new Set(JSON.parse(localStorage.getItem('thisSprint') || '[]')) } catch (e) {}
+
+const isWorkday = iso => {
+  const dow = new Date(iso + 'T00:00:00Z').getUTCDay()
+  return dow !== 0 && dow !== 6 && !HOLIDAYS.has(iso)
+}
+function nextWorkday(iso, includeToday) {
+  let d = includeToday ? iso : plus(iso, 1)
+  for (let i = 0; i < 60 && !isWorkday(d); i++) d = plus(d, 1)
+  return d
+}
+
+// Where an unstarted release is drawn: in this sprint it begins now, otherwise it queues up
+// on the first working day after the sprint ends.
+function plannedStart(r) {
+  const today = new Date().toISOString().slice(0,10)
+  if (thisSprint.has(r.title)) return nextWorkday(today, true)
+  if (sprint && sprint.to) return nextWorkday(sprint.to, false)
+  return TOMORROW
+}
+
+// Recomputed on every draw rather than baked into build(), because ticking a box or moving
+// the sprint changes the answer without any need to talk to GitHub again.
+function applyPlan(rows) {
+  const today = new Date().toISOString().slice(0,10)
+  for (const r of rows) {
+    r.inSprint = thisSprint.has(r.title)
+    r.planned = !r.startedAt && r.state !== 'closed'
+    const start = r.startedAt || (r.state === 'closed' ? r.born : plannedStart(r))
+    const end = r.late ? r.lastDone : r.due
+    r.start = start
+    r.barStart = start < end ? start : end
+    r.barEnd = start < end ? end : start
+    const span = (new Date(r.due) - new Date(start)) / 864e5
+    const gone = (new Date(today) - new Date(start)) / 864e5
+    r.timePct = r.state === 'closed' ? 100 : pct(gone, span)
+  }
+  return rows
+}
+
+function toggleSprint(title) {
+  if (thisSprint.has(title)) thisSprint.delete(title); else thisSprint.add(title)
+  localStorage.setItem('thisSprint', JSON.stringify([...thisSprint]))
+  applyPlan(rowsCache)
+  drawTable(); drawTimeline(rowsCache)
+}
+
 const cleanTitle = t => t.replace(/^\[Closed on \d{8}\]\s*/, '').replace(/^\d{8}\s*/, '').trim()
 // a closed release drops off the page once it has been closed for longer than the window
 const inWindow = r => r.state !== 'closed' ||
@@ -681,7 +751,8 @@ function drawTimeline(rows) {
     content: blocksEl(r, i),
     start: r.barStart,
     end: r.barEnd > r.barStart ? r.barEnd : plus(r.barStart, 1),   // never a zero-width bar
-    className: 'st-' + r.state + (r.state === 'closed' ? '' : ' can-drag'),
+    className: 'st-' + r.state + (r.state === 'closed' ? '' : ' can-drag')
+      + (r.inSprint ? ' in-sprint' : '') + (r.planned ? ' planned' : ''),
     url: PROJECT_SLICE + encodeURIComponent(r.title)
   })).concat(shading(lo, plus(hi, 14)))   // background bands carry no group, so they span every row
 
@@ -838,6 +909,8 @@ function saveSprint(v) {
   lastSprintW = -1                       // new dates, so the label has to be measured again
   if (v) localStorage.setItem('sprint', JSON.stringify(v)); else localStorage.removeItem('sprint')
   placeSprint()
+  // unticked releases queue up after the sprint, so moving it moves them
+  if (rowsCache.length) { applyPlan(rowsCache); drawTable(); drawTimeline(rowsCache) }
 }
 // dd/mm/yyyy in, ISO out. Month and year are optional and fall back to this month and this
 // year, so a sprint inside the current month only needs the day typed.
@@ -1167,6 +1240,16 @@ function datesCell(r) {
     + (late ? ' <b class="late">done ' + pretty(r.lastDone) + '</b>' : '') + '</span>'
 }
 const COLS = [
+  { k:'sprint', h:'This Sprint',
+    cell:r => '<span class="tick' + (r.inSprint ? ' on' : '') + '" data-t="' + esc(r.title)
+      + '" role="checkbox" tabindex="0" aria-checked="' + !!r.inSprint + '" data-tip="'
+      + esc(r.startedAt ? 'Already started on ' + pretty(r.startedAt)
+              + ', so the bar keeps that date either way'
+          : r.inSprint ? 'Planned to start now'
+          : sprint && sprint.to ? 'Queued for the first working day after the sprint'
+          : 'Set a sprint to queue this after it') + '">'
+      + (r.inSprint ? '☑' : '☐') + '</span>',
+    val:r => (r.inSprint ? 0 : 1) },
   { k:'name',  h:'Milestone', cell:r => '<a class="rel" target="_blank" rel="noopener" href="'
       + PROJECT_SLICE + encodeURIComponent(r.title) + '">' + esc(r.name) + '</a>',
     val:r => r.name.toLowerCase() },
@@ -1218,6 +1301,10 @@ function drawTable() {
     if (k === sortKey) sortDir = -sortDir; else { sortKey = k; sortDir = 1 }
     drawTable()
   })
+  $('table').querySelectorAll('.tick').forEach(el => {
+    el.onclick = () => toggleSprint(el.dataset.t)
+    el.onkeydown = e => { if (e.key === ' ' || e.key === 'Enter') { e.preventDefault(); el.click() } }
+  })
 }
 
 /* ---- hover tooltip for the ratio bars ---- */
@@ -1254,8 +1341,8 @@ $('mmdCopy').onclick = async () => {
 // re-render has to land in the same place. Cell sizes are driven off COLS, so a new column
 // gets a placeholder without anyone remembering to add one.
 const SK_BAR = [[6,54],[22,38],[2,71],[35,44],[14,60],[41,29],[9,66],[27,49],[17,57],[3,74]]
-const SK_CELL = { name:[180,9], state:[64,16], prog:[196,20], build:[132,17], fix:[104,17],
-                  devs:[104,17], qas:[68,17], dates:[124,9] }
+const SK_CELL = { sprint:[14,14], name:[180,9], state:[64,16], prog:[196,20], build:[132,17],
+                  fix:[104,17], devs:[104,17], qas:[68,17], dates:[124,9] }
 function skeleton(n = 10) {
   const rows = SK_BAR.slice(0, n).map(([off, w]) =>
     '<div class="sk-row"><span class="sk-lab"><span class="sk" style="width:'
@@ -1288,6 +1375,7 @@ function readCache() {
 
 function paint(when) {
   $('table').removeAttribute('aria-busy')
+  applyPlan(rowsCache)          // planned starts depend on the sprint, not on the fetch
   drawTable()
   drawTimeline(rowsCache)
   const shown = rowsCache.filter(inWindow)
@@ -1362,6 +1450,9 @@ $('help').dataset.tip = '<span class="keys">'
   + '<span class="key">ctrl/&#8984;+wheel &middot; zoom</span>'
   + '<span class="key">double click a bar &middot; open the board</span>'
   + '<span class="key">Sprint &middot; frost the current sprint over the chart</span>'
+  + '<span class="key">This Sprint tick &middot; an unstarted release starts now and glows</span>'
+  + '<span class="key">unticked &middot; it queues after the sprint ends</span>'
+  + '<span class="key">dashed edge &middot; the start date is a plan, not a fact</span>'
   + '</span>'
 function paintFull() {
   $('full').textContent = (full ? '☑' : '☐') + ' Show to 100%'
