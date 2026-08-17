@@ -117,10 +117,13 @@
   /* a soft dark halo just outside the rim, so the border itself casts the shadow */
   #sprint::after { content:''; position:absolute; inset:-1px; border-radius:17px;
             pointer-events:none; box-shadow:0 0 8px 1px rgba(0,90,80,.18); }
+  /* max-width and the ellipsis are the safety net: if the label is measured before the web
+     font loads, it trims from the end rather than losing characters off both sides */
   #sprint b { position:absolute; top:5px; left:50%; transform:translateX(-50%); z-index:1;
               font-size:10px; font-weight:500; letter-spacing:.4px; text-transform:uppercase;
               color:#006b60; background:rgba(255,255,255,.80); border-radius:12px;
-              padding:2px 10px; white-space:nowrap;
+              padding:2px 10px; white-space:nowrap; max-width:calc(100% - 8px);
+              overflow:hidden; text-overflow:ellipsis; box-sizing:border-box;
               box-shadow:0 1px 3px rgba(0,90,80,.20), inset 0 1px 0 rgba(255,255,255,.9); }
   #tl.grabbing .vis-panel.vis-center, #tl.grabbing .vis-panel.vis-center * { cursor:grabbing !important; }
   #tl.edge .vis-panel.vis-center, #tl.edge .vis-panel.vis-center * { cursor:ew-resize !important; }
@@ -682,7 +685,11 @@ function drawTimeline(rows) {
     timeline.on('rangechanged', tuneAxis)
     timeline.on('rangechange', placeSprint)     // track it live while panning and zooming
     timeline.on('changed', placeSprint)
-    addEventListener('resize', placeSprint)
+    addEventListener('resize', () => { lastSprintW = -1; placeSprint() })
+    // the label is measured, so it has to be measured again once the real font is in
+    if (document.fonts && document.fonts.ready) {
+      document.fonts.ready.then(() => { lastSprintW = -1; placeSprint() })
+    }
     timeline.on('doubleClick', props => {             // the milestone name on the left is a link too
       const it = props.item != null && items.get(props.item)
       if (it && it.url) window.open(it.url, '_blank', 'noopener')
@@ -767,7 +774,7 @@ function tuneAxis() {
 /* ---- sprint pane: a frosted block laid over the chart between two dates ---- */
 let sprint = null
 try { sprint = JSON.parse(localStorage.getItem('sprint') || 'null') } catch (e) { sprint = null }
-let sprintEl = null
+let sprintEl = null, lastSprintW = -1
 
 function placeSprint() {
   if (!timeline) return
@@ -783,15 +790,31 @@ function placeSprint() {
   const x1 = at(sprint.from), x2 = at(plus(sprint.to, 1))   // the end day is included
   if (x2 < 0 || x1 > box.width) { sprintEl.style.display = 'none'; return }
   sprintEl.style.display = 'block'
-  sprintEl.style.left = Math.max(-2, x1) + 'px'
-  sprintEl.style.width = Math.max(2, Math.min(box.width + 2, x2) - Math.max(-2, x1)) + 'px'
+  const left = Math.max(-2, x1)
+  const paneW = Math.max(2, Math.min(box.width + 2, x2) - left)
+  sprintEl.style.left = left + 'px'
+  sprintEl.style.width = paneW + 'px'
+
+  // The pane clips its contents, so a label wider than the pane loses characters off BOTH
+  // ends and reads as nonsense. Step the label down until it fits, and drop it entirely on a
+  // very narrow sprint. Only recomputed when the width actually changes, so panning stays cheap.
+  if (Math.round(paneW) === lastSprintW) return
+  lastSprintW = Math.round(paneW)
   const days = Math.round((new Date(sprint.to) - new Date(sprint.from)) / 864e5) + 1
-  sprintEl.firstChild.textContent = 'Sprint · ' + pretty(sprint.from) + ' to ' + pretty(sprint.to)
-    + ' · ' + days + 'd'
+  const lab = sprintEl.firstChild
+  const options = ['Sprint · ' + pretty(sprint.from) + ' to ' + pretty(sprint.to) + ' · ' + days + 'd',
+                   'Sprint · ' + days + 'd', 'Sprint', '']
+  for (const text of options) {
+    if (!text) { lab.style.display = 'none'; break }
+    lab.style.display = ''
+    lab.textContent = text
+    if (lab.offsetWidth <= paneW - 8) break
+  }
 }
 
 function saveSprint(v) {
   sprint = v
+  lastSprintW = -1                       // new dates, so the label has to be measured again
   if (v) localStorage.setItem('sprint', JSON.stringify(v)); else localStorage.removeItem('sprint')
   placeSprint()
 }
