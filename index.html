@@ -419,7 +419,7 @@ const OPEN_MS = 30            // biggest repo has 20 open milestones today
 const ISSUES  = 70            // biggest milestone ever had 64 cards
 // zai-backend closed 12 milestones inside one 14 day window, so 10 was already too few
 let closedMs  = 20            // grows when Show older is pressed
-const RATE_HEAD = `rateLimit{ remaining resetAt }`
+const RATE_HEAD = `rateLimit{ remaining resetAt } viewer{ login }`
 const Q_OPEN = `
 query($owner:String!,$name:String!,$ms:Int!,$iss:Int!){
   ${RATE_HEAD}
@@ -445,6 +445,13 @@ const pretty = s => new Date(s + 'T00:00:00Z')
   .toLocaleDateString('en-GB', { day:'numeric', month:'short', timeZone:'UTC' })
 
 let rate = null                          // what GitHub last told us about the hourly budget
+let me = null                            // the login GitHub says we are signed in as
+
+// An app the org has not approved sees private repos as though they do not exist, so GitHub
+// answers "could not resolve" and the real problem never reaches the screen. Say that instead.
+const noAccess = name => 'Signed in' + (me ? ' as @' + me : '') + ', but this account cannot see '
+  + OWNER + '/' + name + '. An owner of ' + OWNER + ' has to approve the roadmap app under '
+  + 'Settings \u2192 Third-party Access, and you have to be signed in as a member of the org.'
 
 // ---- sign-in --------------------------------------------------------------------------
 // PKCE: the code GitHub puts in the address bar is worthless without the verifier, and the
@@ -528,8 +535,10 @@ async function ask(query, name, ms) {
   }
   const json = await res.json()
   if (json.data && json.data.rateLimit) rate = json.data.rateLimit
+  if (json.data && json.data.viewer) me = json.data.viewer.login
   if (json.errors) {
     const e = json.errors[0]
+    if (e.type === 'NOT_FOUND') throw new Error(noAccess(name))
     if (e.type === 'RATE_LIMITED' || /rate limit/i.test(e.message)) {
       const back = rate && rate.resetAt ? new Date(rate.resetAt).toLocaleTimeString() : 'soon'
       throw new Error('GitHub hourly API budget is used up. It comes back at ' + back
@@ -538,8 +547,7 @@ async function ask(query, name, ms) {
     throw new Error(e.message)
   }
   const repo = json.data && json.data.repository
-  if (!repo) throw new Error('No access to ' + name + '. Your sign-in has to be SSO authorised '
-    + 'for ' + OWNER + ', and your account needs to be able to see that repo.')
+  if (!repo) throw new Error(noAccess(name))
   return repo.milestones.nodes
 }
 
@@ -1477,6 +1485,8 @@ function paint(when) {
   $('stamp').dataset.tip = 'updated ' + new Date(when).toLocaleTimeString()
     + '<br>' + devs + ' devs &middot; ' + qas + ' QAs'
     + (rate ? '<br>API budget ' + rate.remaining + '/5000' : '')
+    + (me ? '<br>signed in as @' + me : '')
+  if (me) $('signout').title = 'Signed in as @' + me
 }
 
 let loading = false
