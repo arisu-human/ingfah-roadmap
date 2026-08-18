@@ -270,14 +270,15 @@
   <h1>ingfah release roadmap</h1>
   <span class="muted" id="stamp"></span>
   <button id="refresh">Refresh</button>
-  <button id="forget">Forget token</button>
+  <button id="signout" hidden>Sign out</button>
 </header>
 
 <div class="card" id="gate">
-  <p><b>Paste a GitHub token.</b> It stays in this browser only and is never sent anywhere except github.com.</p>
-  <p class="muted">Classic token at <a href="https://github.com/settings/tokens" target="_blank">Settings &rarr; Developer settings &rarr; Tokens (classic)</a>,
-     with <b>repo</b> and <b>read:project</b>. If the org uses single sign-on, click <b>Configure SSO</b> on the token and authorise 100x-fi.</p>
-  <p><input id="token" type="password" placeholder="ghp_..." autocomplete="off"> <button id="save">Save</button></p>
+  <p><b>Sign in with GitHub to see the roadmap.</b></p>
+  <p class="muted">You will be asked once to let the roadmap read the <b>100x-fi</b> milestones and
+     boards, and to write a release due date back when you drag one. What GitHub gives back stays
+     in this browser and is sent nowhere but github.com.</p>
+  <p><button id="signin" class="primary">Sign in with GitHub</button></p>
   <p class="err" id="gateErr"></p>
 </div>
 
@@ -330,6 +331,17 @@
 const OWNER = '100x-fi'
 const REPOS = ['zai-backend','zai-frontend','zai-bo-frontend','ingfah-rag','ingfah-dev-docs','zai-docs']
 const PROJECT_SLICE = 'https://github.com/orgs/100x-fi/projects/6/views/5?sliceBy%5Bvalue%5D='
+
+// github.com's OAuth token endpoint sends no CORS headers, so a page served from GitHub Pages
+// cannot finish a login on its own. EXCHANGE is the one small worker that can: it holds the
+// OAuth app's client secret and swaps the single-use code for a token. auth/README.md has the
+// app and the worker, and what to do if either ever has to be rebuilt.
+const CLIENT_ID = 'Ov23ligjYU8yfTEQgmUk'    // from the OAuth app
+const EXCHANGE  = 'https://ingfah-roadmap-auth.nammon-79f.workers.dev/exchange'
+const SCOPES    = 'repo read:project'   // read the board, write milestone due dates
+// GitHub only sends the reply to the callback the OAuth app registered, so this has to be the
+// page's own address with nothing on the end of it
+const REDIRECT  = location.origin + location.pathname
 const REFRESH_MS = 15 * 60 * 1000
 const QA = new Set(['kat100xfi','subzero-ice','viviintern-eng'])
 const STATUS_TODO = 'To Do'
@@ -434,13 +446,86 @@ const pretty = s => new Date(s + 'T00:00:00Z')
 
 let rate = null                          // what GitHub last told us about the hourly budget
 
+// ---- sign-in --------------------------------------------------------------------------
+// PKCE: the code GitHub puts in the address bar is worthless without the verifier, and the
+// verifier never leaves this tab. It is what stops a leaked URL from becoming a login.
+const b64url = buf => btoa(String.fromCharCode(...new Uint8Array(buf)))
+  .replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '')
+const randStr = n => b64url(crypto.getRandomValues(new Uint8Array(n)))
+const s256 = async s => b64url(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(s)))
+const CONFIGURED = Boolean(CLIENT_ID && EXCHANGE)
+
+async function signIn() {
+  const verifier = randStr(48)           // 64 characters, inside GitHub's 43-128 range
+  const state = randStr(16)
+  // sessionStorage, not localStorage: this reply is only ever meant for the tab that asked
+  sessionStorage.setItem('ghPkce', JSON.stringify({ verifier, state }))
+  location.href = 'https://github.com/login/oauth/authorize?' + new URLSearchParams({
+    client_id: CLIENT_ID, redirect_uri: REDIRECT, scope: SCOPES, state,
+    code_challenge: await s256(verifier), code_challenge_method: 'S256'
+  })
+}
+
+function gateFail(msg) {
+  $('gate').style.display = 'block'
+  $('gateErr').textContent = msg
+  return true                            // a failed login is still not a plain signed-out page
+}
+
+// True when this page load was a return from GitHub, so the caller knows not to go asking for
+// data behind a login that just failed.
+async function finishSignIn() {
+  const q = new URLSearchParams(location.search)
+  if (!q.get('code') && !q.get('error')) return false
+  // the code is single use and has no business sitting in the address bar or in a bookmark
+  history.replaceState(null, '', REDIRECT)
+  let saved = null
+  try { saved = JSON.parse(sessionStorage.getItem('ghPkce') || 'null') } catch (e) {}
+  sessionStorage.removeItem('ghPkce')
+
+  if (q.get('error')) return gateFail(q.get('error_description') || q.get('error'))
+  if (!saved || saved.state !== q.get('state'))
+    return gateFail('That sign-in did not come back to the tab that started it. Try again.')
+
+  $('gate').style.display = 'block'
+  $('gateErr').textContent = ''
+  $('signin').disabled = true
+  $('signin').textContent = 'Signing in\u2026'
+  try {
+    const res = await fetch(EXCHANGE, {
+      method: 'POST', headers: { 'Content-Type':'application/json' },
+      body: JSON.stringify({ code:q.get('code'), code_verifier:saved.verifier, redirect_uri:REDIRECT })
+    })
+    const j = await res.json().catch(() => ({}))
+    if (!res.ok || !j.access_token)
+      throw new Error(j.error_description || j.error || 'the exchange answered HTTP ' + res.status)
+    localStorage.setItem('ghToken', j.access_token)
+  } catch (e) {
+    return gateFail('Could not finish the sign-in: ' + e.message)
+  } finally {
+    $('signin').disabled = false
+    $('signin').textContent = 'Sign in with GitHub'
+  }
+  return true
+}
+
+function signOut() {
+  localStorage.removeItem('ghToken')
+  localStorage.removeItem(CACHE)         // the next person here must not find these numbers
+  location.href = REDIRECT
+}
+
 async function ask(query, name, ms) {
   const res = await fetch('https://api.github.com/graphql', {
     method:'POST',
     headers:{ 'Authorization':'Bearer ' + token(), 'Content-Type':'application/json' },
     body: JSON.stringify({ query, variables:{ owner:OWNER, name, ms, iss:ISSUES } })
   })
-  if (res.status === 401) throw new Error('Token rejected. Make a new one and paste it again.')
+  // revoked, or the org withdrew the app; either way the way back is a fresh sign-in
+  if (res.status === 401) {
+    localStorage.removeItem('ghToken')
+    throw new Error('GitHub rejected the sign-in. Sign in again.')
+  }
   const json = await res.json()
   if (json.data && json.data.rateLimit) rate = json.data.rateLimit
   if (json.errors) {
@@ -453,7 +538,8 @@ async function ask(query, name, ms) {
     throw new Error(e.message)
   }
   const repo = json.data && json.data.repository
-  if (!repo) throw new Error('No access to ' + name + '. Check the token scopes and SSO.')
+  if (!repo) throw new Error('No access to ' + name + '. Your sign-in has to be SSO authorised '
+    + 'for ' + OWNER + ', and your account needs to be able to see that repo.')
   return repo.milestones.nodes
 }
 
@@ -1044,9 +1130,9 @@ async function setDue(ref, due, title) {
   const j = await res.json().catch(() => ({}))
   // GitHub answers 404, not 403, when a token may read a private repo but not write it, so
   // say what that really means instead of passing "Not Found" through
-  if (res.status === 403 || res.status === 404) throw new Error(where + ': your token cannot '
-    + 'change this milestone (HTTP ' + res.status + '). It needs the classic repo scope, write '
-    + 'access to ' + ref.repo + ', and SSO authorised for ' + OWNER + '.')
+  if (res.status === 403 || res.status === 404) throw new Error(where + ': your sign-in cannot '
+    + 'change this milestone (HTTP ' + res.status + '). It needs write access to ' + ref.repo
+    + ', and SSO authorised for ' + OWNER + '.')
   if (!res.ok) throw new Error(where + ': HTTP ' + res.status
     + (j.message ? ' ' + j.message : '') + (j.errors ? ' ' + JSON.stringify(j.errors) : ''))
 
@@ -1397,10 +1483,12 @@ let loading = false
 async function load(force) {
   if (!token()) {
     $('gate').style.display = 'block'
+    $('signout').hidden = true
     $('tl').textContent = ''; $('table').innerHTML = ''
     return
   }
   $('gate').style.display = 'none'
+  $('signout').hidden = false
   const cached = readCache()
   if (!force && cached && cached.closedMs >= closedMs && Date.now() - cached.at < REFRESH_MS) {
     rowsCache = cached.rows
@@ -1481,14 +1569,22 @@ paintHide()
 $('statusKey').innerHTML = BOARD.map(b =>
   '<span class="key"><i style="background:' + b.c + '"></i>' + b.short + '</span>').join('')
 
-$('save').onclick = () => { localStorage.setItem('ghToken', $('token').value.trim()); $('token').value = ''; load() }
-$('token').onkeydown = e => { if (e.key === 'Enter') $('save').click() }
+$('signin').onclick = signIn
 $('search').oninput = drawTable
 $('refresh').onclick = () => load(true)
-$('forget').onclick = () => { localStorage.removeItem('ghToken'); location.reload() }
+$('signout').onclick = signOut
 // only refresh while the tab is actually being looked at, so a forgotten tab costs nothing
 setInterval(() => { if (!document.hidden) load(true) }, REFRESH_MS)
-load()
+
+if (!CONFIGURED) {
+  $('gate').style.display = 'block'
+  $('signin').disabled = true
+  $('gateErr').textContent = 'This copy of the page has no CLIENT_ID or EXCHANGE set, so there is '
+    + 'nothing to sign in to. See auth/README.md in the repo.'
+} else {
+  // a return from GitHub carries ?code=, and that has to be spent before anything asks for data
+  finishSignIn().then(handled => { if (!handled || token()) load() })
+}
 </script>
 </body>
 </html>

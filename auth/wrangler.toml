@@ -1,0 +1,11 @@
+name = "ingfah-roadmap-auth"
+main = "worker.js"
+compatibility_date = "2026-08-18"
+workers_dev = true
+
+[vars]
+# Fill in after creating the OAuth app. The secret does NOT go here — see README.md.
+GITHUB_CLIENT_ID  = "Ov23ligjYU8yfTEQgmUk"
+ALLOWED_ORIGINS   = "https://arisu-human.github.io"
+# both spellings: Pages serves the page at either, and GitHub echoes back whichever was sent
+ALLOWED_REDIRECTS = "https://arisu-human.github.io/ingfah-roadmap/,https://arisu-human.github.io/ingfah-roadmap/index.html"
