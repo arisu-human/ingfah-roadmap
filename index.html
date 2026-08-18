@@ -78,26 +78,11 @@
   .vis-item.st-closed  { background:#f0f2f5; border-color:#d8dee4; }
   /* a dashed edge says the start date is a plan, not something that has happened */
   .vis-item.planned { border-style:dashed; }
-  /* this sprint, in the same teal as the sprint pane. Three layers, because one blur reads as
-     a smudge: a hard rim that keeps the bar's edge, a bright halo, and a wide soft bloom. The
-     rim brightens to a lighter teal at the peak, so it pulses in colour and not only in
-     opacity — that is what makes it look lit rather than merely thicker. */
-  @keyframes sprintGlow {
-    0%,100% { box-shadow:0 0 0 2px #00BBA7,
-                         0 0 12px 2px rgba(0,187,167,.70),
-                         0 0 26px 6px rgba(0,187,167,.30) }
-    50%     { box-shadow:0 0 0 2px #1ee0c9,
-                         0 0 20px 5px rgba(30,224,201,.95),
-                         0 0 42px 12px rgba(0,187,167,.52) }
-  }
-  /* vis gives every item z-index 1, so without this the bloom slides under the next bar along */
-  .vis-item.in-sprint { border-color:#00BBA7; z-index:3;
-                        animation:sprintGlow 1.9s ease-in-out infinite; }
-  @media (prefers-reduced-motion:reduce) {
-    .vis-item.in-sprint { animation:none;
-      box-shadow:0 0 0 2px #00BBA7, 0 0 16px 3px rgba(0,187,167,.85),
-                 0 0 32px 8px rgba(0,187,167,.42); }
-  }
+  /* This sprint: the ticked bars stay exactly as they are and everything else steps back.
+     Finding what is NOT faded is faster than picking a lit edge out of a wall of bars, and it
+     costs the ticked rows none of their own colour. The weekend and holiday bands keep their
+     weight, or the calendar you are counting days against would fade out with the bars. */
+  #tl.sprint-focus .vis-item:not(.vis-background):not(.in-sprint) { opacity:.4; }
   .tick { cursor:pointer; user-select:none; font-size:15px; line-height:1; color:var(--soft-muted);
           padding:2px 4px; border-radius:6px; display:inline-block; }
   .tick:hover { color:var(--ink); background:var(--surface-soft); }
@@ -842,6 +827,7 @@ function drawTimeline(rows) {
   const shown = rows.filter(inWindow)
   shownCache = shown
   if (!shown.length) { $('tl').textContent = 'Nothing to show.'; return }
+  $('tl').classList.toggle('sprint-focus', shown.some(r => r.inSprint))
   const lo = shown.reduce((m, r) => r.barStart < m ? r.barStart : m, shown[0].barStart)
   const hi = shown.reduce((m, r) => r.barEnd > m ? r.barEnd : m, shown[0].barEnd)
 
