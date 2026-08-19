@@ -72,7 +72,14 @@
   #tl { border:0; user-select:none; }
   /* vis gives each day label the full column width, so centering the text puts the number in
      the middle of its cell instead of hanging off the grid line: | 1 | 2 | 3 | */
-  .vis-time-axis .vis-text.vis-minor { text-align:center; padding:3px 0; }
+  /* Two lines in the height vis measured for one: the weekday and the number both run at
+     line-height 1 with no padding, so together they still fit the single line box. */
+  .vis-time-axis .vis-text.vis-minor { text-align:center; padding:0; line-height:1;
+            font-size:11px; }
+  .vis-time-axis .vis-text.vis-minor .dow { display:block; font-size:7.5px; line-height:1;
+            padding:1px 0; letter-spacing:.3px; color:var(--soft-muted); }
+  /* vis sizes the axis row off this hidden probe, so the probe must be two lines tall too */
+  .vis-time-axis .vis-text.vis-minor.vis-measure { height:22px; }
   .vis-timeline { border:0; font-family:inherit; font-size:12px; }
   .vis-item { border-width:1px; border-radius:6px; color:var(--ink); background:var(--canvas);
               border-color:#c3c8cf; }
@@ -191,8 +198,9 @@
   th.sorted .arrow { opacity:1; }
   tr.closed td { color:var(--soft-muted); }
   td.late { color:var(--late); font-weight:500; }
-  a.rel { color:inherit; text-decoration:none; border-bottom:1px dotted var(--hairline); }
-  a.rel:hover { color:var(--link); border-bottom-color:var(--link); }
+  .rel { color:inherit; cursor:pointer; border-bottom:1px dotted var(--hairline); }
+  .rel:hover { color:var(--link); border-bottom-color:var(--link); }
+  td .gopen { margin-left:6px; }
 
   /* The pie is the tallest thing in a row at 26px, so it sets the row height. Everything
      else grows to 24px to use that space instead of floating in it: the rows do not get
@@ -1098,13 +1106,14 @@ function drawTimeline(rows) {
       margin: { item: { horizontal: 0, vertical: 2 }, axis: 4 },
       showCurrentTime: true, maxHeight: '72vh', groupOrder: 'order',
       format: {
-        minorLabels: { day:'D', weekday:'D', week:'D', month:'MMM' },
+        minorLabels: { day:'ddd D', weekday:'ddd D', week:'D', month:'MMM' },
         majorLabels: { day:'MMMM YYYY', weekday:'MMMM YYYY', week:'MMMM YYYY', month:'YYYY' }
       }
     })
     timeline.on('rangechanged', tuneAxis)
     timeline.on('rangechange', placeSprint)     // track it live while panning and zooming
     timeline.on('changed', placeSprint)
+    timeline.on('changed', dressAxis)
     addEventListener('resize', () => { lastSprintW = -1; placeSprint() })
     // vis measures the panel once, on construction. If the web font is still arriving, or the
     // container is laid out a frame later, it measures nothing and draws an empty chart that
@@ -1227,6 +1236,21 @@ function drawTimeline(rows) {
   }
   tuneAxis(); placeSprint()
   $('older').title = 'Showing releases closed in the last ' + windowDays + ' days. Load further back.'
+}
+
+// vis escapes any HTML in an axis label, so the two line day label, weekday over number, is
+// dressed after the fact: the label arrives as "Tue 18" and is split into a small weekday and
+// the number. vis rewrites the labels on every repaint, so this runs on every 'changed'.
+function dressAxis() {
+  for (const el of $('tl').querySelectorAll(
+      '.vis-time-axis .vis-text.vis-minor:not(.vis-measure)')) {
+    const m = el.firstChild && el.firstChild.nodeType === 3
+      && el.textContent.match(/^([A-Za-z]{3}) (\d+)$/)
+    if (!m) continue
+    el.textContent = ''
+    const d = elem('span', 'dow'); d.textContent = m[1]
+    el.append(d, document.createTextNode(m[2]))
+  }
 }
 
 // Every day gets its own grid line while there is room to print the number. Only when the
