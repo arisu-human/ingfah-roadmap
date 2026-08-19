@@ -1064,6 +1064,10 @@ function drawTimeline(rows) {
     groups = new vis.DataSet(groupData)
     timeline = new vis.Timeline($('tl'), items, groups, {
       stack: false,
+      // Built WITH the opening window. Without start and end of its own, vis fits every item on
+      // screen once its data lands, which happens after construction and quietly threw away the
+      // window set here.
+      ...futureWindow(shown, DEFAULT_ZOOM),
       horizontalScroll: false, verticalScroll: true,
       zoomKey: 'ctrlKey', zoomMin: 3 * 864e5, zoomMax: 800 * 864e5,
       // vis item editing is off on purpose: dragging anywhere then pans the view like a hand
@@ -1263,15 +1267,20 @@ $('sprintClear').onclick = () => {
 // The zoom buttons step by 0.4, and vis divides the window by 1 + that, so three clicks in is
 // 1.4^3. The window is cut from the far end only, so today stays where the Fit view puts it.
 const DEFAULT_ZOOM = Math.pow(1.4, 3)
-function showFuture(shown, zoom) {
-  const rows = shown || rowsCache.filter(inWindow)
-  if (!timeline || !rows.length) return
+// A week back, out to the last future release, optionally cut to `zoom` of that span.
+function futureWindow(rows, zoom) {
   const today = todayISO()
   const hi = rows.reduce((m, r) => r.barEnd > m ? r.barEnd : m, today)
   const from = plus(today, -7), to = plus(hi, 7)
   const days = Math.round((new Date(to) - new Date(from)) / 864e5)
-  timeline.setWindow(bkk(from), bkk(zoom ? plus(from, Math.max(7, Math.round(days / zoom))) : to),
-                     { animation:false })
+  return { start: bkk(from),
+           end: bkk(zoom ? plus(from, Math.max(7, Math.round(days / zoom))) : to) }
+}
+function showFuture(shown, zoom) {
+  const rows = shown || rowsCache.filter(inWindow)
+  if (!timeline || !rows.length) return
+  const w = futureWindow(rows, zoom)
+  timeline.setWindow(w.start, w.end, { animation:false })
 }
 
 /* ---- toast ---- */
