@@ -1094,9 +1094,24 @@ function drawTimeline(rows) {
     timeline.on('rangechange', placeSprint)     // track it live while panning and zooming
     timeline.on('changed', placeSprint)
     addEventListener('resize', () => { lastSprintW = -1; placeSprint() })
+    // vis measures the panel once, on construction. If the web font is still arriving, or the
+    // container is laid out a frame later, it measures nothing and draws an empty chart that
+    // nothing wakes up again. Redraw whenever the box changes size, and once the font lands.
+    if (window.ResizeObserver) {
+      let lastW = 0
+      new ResizeObserver(() => {
+        const w = $('tl').clientWidth
+        if (w === lastW) return
+        lastW = w
+        if (timeline) { timeline.redraw(); lastSprintW = -1; placeSprint() }
+      }).observe($('tl'))
+    }
     // the label is measured, so it has to be measured again once the real font is in
     if (document.fonts && document.fonts.ready) {
-      document.fonts.ready.then(() => { lastSprintW = -1; placeSprint() })
+      document.fonts.ready.then(() => {
+        if (timeline) timeline.redraw()
+        lastSprintW = -1; placeSprint()
+      })
     }
     timeline.on('doubleClick', props => {             // the milestone name on the left is a link too
       const it = props.item != null && items.get(props.item)
@@ -1777,7 +1792,22 @@ function paint(when) {
   $('table').removeAttribute('aria-busy')
   applyPlan(rowsCache)          // planned starts depend on the sprint, not on the fetch
   drawTable()
-  drawTimeline(rowsCache)
+  // The chart is the half that can fail on its own: it is the only part with a library under
+  // it. A throw in here used to leave an empty white box and take the rest of the paint with
+  // it, which reads as "still loading" for ever. Say what happened, and let the next paint
+  // build a fresh Timeline rather than reusing a half built one.
+  try {
+    drawTimeline(rowsCache)
+  } catch (e) {
+    timeline = null
+    // the library comes off a CDN, so its absence is the one failure worth naming outright
+    const why = typeof vis === 'undefined'
+      ? 'the timeline library did not load, so nothing can draw the chart'
+      : esc(e.message) + esc(String(e.stack || '').split('\n')[1] || '')
+    $('tl').innerHTML = '<p class="err" style="padding:16px">The chart could not be drawn: ' + why
+      + '<br>The table below is the same data. Press Refresh to try again.</p>'
+    toast('The chart could not be drawn: ' + e.message, 'err')
+  }
   const shown = rowsCache.filter(inWindow)
   const n = s => shown.filter(r => r.state === s).length
   const devs = new Set(shown.flatMap(r => r.devs.map(p => p.login))).size
