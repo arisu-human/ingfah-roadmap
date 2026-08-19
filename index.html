@@ -798,10 +798,16 @@ function build(all) {
 }
 
 /* ---- this sprint: planning the releases that have not started yet ---- */
+// The name with the date stamp and any [Closed on ...] taken off the front. Moving a due date
+// renames the milestone, so the title is not a stable way to remember anything about a release:
+// the tick is kept against this instead, and survives the rename.
+const cleanTitle = t => t.replace(/^\[Closed on \d{8}\]\s*/, '').replace(/^\d{8}\s*/, '').trim()
 // Only a release that has never left To Do can be planned. One that has really started keeps
 // the date it really started on, ticked or not: that is a fact, not a plan.
 let thisSprint = new Set()
-try { thisSprint = new Set(JSON.parse(localStorage.getItem('thisSprint') || '[]')) } catch (e) {}
+// cleanTitle on the way in, so ticks saved against the old full title still land
+try { thisSprint = new Set(JSON.parse(localStorage.getItem('thisSprint') || '[]').map(cleanTitle)) }
+catch (e) {}
 
 const isWorkday = iso => {
   const dow = new Date(iso + 'T00:00:00Z').getUTCDay()
@@ -817,7 +823,7 @@ function nextWorkday(iso, includeToday) {
 // on the first working day after the sprint ends.
 function plannedStart(r) {
   const today = todayISO()
-  if (thisSprint.has(r.title)) return nextWorkday(today, true)
+  if (thisSprint.has(r.name)) return nextWorkday(today, true)
   if (sprint && sprint.to) return nextWorkday(sprint.to, false)
   return TOMORROW
 }
@@ -827,7 +833,7 @@ function plannedStart(r) {
 function applyPlan(rows) {
   const today = todayISO()
   for (const r of rows) {
-    r.inSprint = thisSprint.has(r.title) && r.state !== 'closed'
+    r.inSprint = thisSprint.has(r.name) && r.state !== 'closed'
     r.planned = !r.startedAt && r.state !== 'closed'
     const start = r.startedAt || (r.state === 'closed' ? r.born : plannedStart(r))
     const end = r.late ? r.lastDone : r.due
@@ -855,16 +861,15 @@ function clearTicks() {
   drawTable(); drawTimeline(rowsCache)
 }
 
-function toggleSprint(title) {
-  const row = rowsCache.find(r => r.title === title)
+function toggleSprint(name) {
+  const row = rowsCache.find(r => r.name === name)
   if (row && row.state === 'closed') return       // closed is a fact, not a plan
-  if (thisSprint.has(title)) thisSprint.delete(title); else thisSprint.add(title)
+  if (thisSprint.has(name)) thisSprint.delete(name); else thisSprint.add(name)
   localStorage.setItem('thisSprint', JSON.stringify([...thisSprint]))
   applyPlan(rowsCache)
   drawTable(); drawTimeline(rowsCache)
 }
 
-const cleanTitle = t => t.replace(/^\[Closed on \d{8}\]\s*/, '').replace(/^\d{8}\s*/, '').trim()
 // a closed release drops off the page once it has been closed for longer than the window
 const inWindow = r => r.state !== 'closed' ||
   (r.closedAt || r.end) >= dayOf(Date.now() - windowDays * 864e5)
@@ -950,7 +955,7 @@ function tickEl(r) {
   t.tabIndex = 0
   t.setAttribute('role', 'checkbox')
   t.setAttribute('aria-checked', !!r.inSprint)
-  t.onclick = e => { e.stopPropagation(); toggleSprint(r.title) }
+  t.onclick = e => { e.stopPropagation(); toggleSprint(r.name) }
   t.onkeydown = e => { if (e.key === ' ' || e.key === 'Enter') { e.preventDefault(); t.click() } }
   return t
 }
@@ -1588,7 +1593,7 @@ function datesCell(r) {
 const COLS = [
   { k:'sprint', h:'This Sprint',
     cell:r => r.state === 'closed' ? ''
-      : '<span class="tick' + (r.inSprint ? ' on' : '') + '" data-t="' + esc(r.title)
+      : '<span class="tick' + (r.inSprint ? ' on' : '') + '" data-t="' + esc(r.name)
       + '" role="checkbox" tabindex="0" aria-checked="' + !!r.inSprint + '" data-tip="'
       + esc(tickTip(r)) + '">'
       + (r.inSprint ? '☑' : '☐') + '</span>',
