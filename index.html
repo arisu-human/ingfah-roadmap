@@ -70,6 +70,9 @@
 
   /* ---- timeline ---- */
   #tl { border:0; user-select:none; }
+  /* vis gives each day label the full column width, so centering the text puts the number in
+     the middle of its cell instead of hanging off the grid line: | 1 | 2 | 3 | */
+  .vis-time-axis .vis-text.vis-minor { text-align:center; padding:3px 0; }
   .vis-timeline { border:0; font-family:inherit; font-size:12px; }
   .vis-item { border-width:1px; border-radius:6px; color:var(--ink); background:var(--canvas);
               border-color:#c3c8cf; }
