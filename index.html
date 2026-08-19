@@ -1207,14 +1207,23 @@ function drawTimeline(rows) {
     // vertical scroll is in after the first build, the first thing shown is the first release.
     const box = timeline.dom.left.parentNode
     if (box) box.scrollTop = 0
-    // A tab that loads in the background gets no layout work from the browser, so vis builds
-    // itself on measurements of nothing and paints a white panel, axis and all, until some
-    // interaction forces a redraw. Redraw once the first real frame arrives, and again
-    // whenever the tab becomes visible: a redraw on a healthy chart costs one frame.
-    requestAnimationFrame(() => timeline && timeline.redraw())
-    document.addEventListener('visibilitychange', () => {
-      if (!document.hidden && timeline) timeline.redraw()
-    })
+    // The chart can come up white with everything in place but nothing painted, and any
+    // interaction cures it: a scroll on the chart, a browser zoom. A redraw alone did not, so
+    // this replays the user's own cure, a 1px scroll nudge plus a compositing poke, after the
+    // first frame, again shortly after (the axis rescale and the sprint pane land late), once
+    // the font is in, and whenever the tab becomes visible. All invisible on a healthy chart.
+    const poke = () => {
+      if (!timeline) return
+      timeline.redraw()
+      const b = timeline.dom.left.parentNode
+      if (b) { b.scrollTop += 1; b.scrollTop -= 1 }
+      $('tl').style.transform = 'translateZ(0)'
+      requestAnimationFrame(() => { $('tl').style.transform = '' })
+    }
+    requestAnimationFrame(poke)
+    setTimeout(poke, 700)
+    if (document.fonts && document.fonts.ready) document.fonts.ready.then(() => setTimeout(poke, 0))
+    document.addEventListener('visibilitychange', () => { if (!document.hidden) poke() })
   }
   tuneAxis(); placeSprint()
   $('older').title = 'Showing releases closed in the last ' + windowDays + ' days. Load further back.'
