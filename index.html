@@ -273,7 +273,7 @@
   #gate .gatebox { display:grid; justify-items:center; gap:24px; padding:24px; }
   #gate .err { color:#ff9d9e; margin:0; max-width:420px; text-align:center; line-height:1.5; }
   @property --shimmer { syntax:"<angle>"; inherits:false; initial-value:33deg; }
-  @keyframes shimmer { 0% { --shimmer:0deg } 100% { --shimmer:360deg } }
+  @keyframes shimmerSpin { 0% { --shimmer:0deg } 100% { --shimmer:360deg } }
   @keyframes shine { 0% { opacity:0 } 15% { opacity:1 } 55% { opacity:1 } 100% { opacity:0 } }
   @keyframes shineText { 0% { background-position:100% center } 100% { background-position:-100% center } }
   #signin { --inset:40px;
@@ -297,7 +297,7 @@
                         transparent 0%, transparent 20%, black 36%, black 45%,
                         transparent 50%, transparent 70%, black 85%, black 95%, transparent 100%);
             -webkit-mask-size:cover; mask-size:cover;
-            animation:shimmer 1s linear infinite both; }
+            animation:shimmerSpin 1s linear infinite both; }
   #signin .shimmer::before, #signin .shimmer::after { transition:all .5s ease; opacity:0; content:"";
             border-radius:inherit; position:absolute; mix-blend-mode:color;
             inset:var(--inset); pointer-events:none; }
