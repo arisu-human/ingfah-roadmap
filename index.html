@@ -257,7 +257,71 @@
   .toast.out { opacity:0; transition:opacity .2s; }
   @media (prefers-reduced-motion:reduce) { .toast { animation:none } }
   .err { color:#b62324; }
-  #gate { display:none; }
+  /* ---- signed out: one button on a dark ground, nothing else ---- */
+  /* The shimmer is a conic mask spun around the button, with two glow rings that only wake up
+     on hover. Every selector is under #gate, so the toolbar buttons keep the flat chrome. */
+  #gate { --bg:#1b1724; --glow-hue:222deg; --shadow-hue:180deg;
+          --spring-easing:linear(0, 0.002, 0.01 0.9%, 0.038 1.8%, 0.156, 0.312 5.8%, 0.789 11.1%,
+            1.015 14.2%, 1.096, 1.157, 1.199, 1.224 20.3%, 1.231, 1.231, 1.226, 1.214 24.6%,
+            1.176 26.9%, 1.057 32.6%, 1.007 35.5%, 0.984, 0.968, 0.956, 0.949 42%, 0.946 44.1%,
+            0.95 46.5%, 0.998 57.2%, 1.007, 1.011 63.3%, 1.012 68.3%, 0.998 84%, 1);
+          --spring-duration:1.33s;
+          display:none; position:fixed; inset:0; z-index:60; place-items:center;
+          background-image:radial-gradient(circle at 50% 0%,
+                           #43364a 16.4%, #2f3043 68.2%, #1b1724 99.1%); }
+  #gate.on { display:grid; }
+  #gate .gatebox { display:grid; justify-items:center; gap:24px; padding:24px; }
+  #gate .err { color:#ff9d9e; margin:0; max-width:420px; text-align:center; line-height:1.5; }
+  @property --shimmer { syntax:"<angle>"; inherits:false; initial-value:33deg; }
+  @keyframes shimmer { 0% { --shimmer:0deg } 100% { --shimmer:360deg } }
+  @keyframes shine { 0% { opacity:0 } 15% { opacity:1 } 55% { opacity:1 } 100% { opacity:0 } }
+  @keyframes shineText { 0% { background-position:100% center } 100% { background-position:-100% center } }
+  #signin { --inset:40px;
+            display:inline-flex; align-items:center; gap:.6em;
+            font-size:16px; font-weight:600; color:var(--bg); border:0;
+            background-image:linear-gradient(315deg, #ffc4ec -10%, #efdbfd 50%, #ffedd6 110%);
+            padding:.8em 1.4em; position:relative; isolation:isolate;
+            box-shadow:0 2px 3px 1px hsl(var(--glow-hue) 50% 20% / 50%),
+                       inset 0 -10px 20px -10px hsla(var(--shadow-hue),10%,90%,95%);
+            border-radius:.66em; scale:1;
+            transition:all var(--spring-duration) var(--spring-easing); }
+  #signin:hover:not(:active) { transition-duration:calc(var(--spring-duration)*.5); scale:1.2;
+            box-shadow:0 4px 8px -2px hsl(var(--glow-hue) 50% 20% / 50%), inset 0 0 0 transparent; }
+  #signin:active { scale:1.1; transition-duration:calc(var(--spring-duration)*.5); }
+  #signin[disabled] { cursor:default; }
+  #signin .gh { flex:0 0 auto; }
+  #signin .shimmer { position:absolute; inset:calc(var(--inset) * -1); border-radius:inherit;
+            pointer-events:none; mix-blend-mode:plus-lighter;
+            -webkit-mask-image:var(--shim-mask); mask-image:var(--shim-mask);
+            --shim-mask:conic-gradient(from var(--shimmer, 0deg),
+                        transparent 0%, transparent 20%, black 36%, black 45%,
+                        transparent 50%, transparent 70%, black 85%, black 95%, transparent 100%);
+            -webkit-mask-size:cover; mask-size:cover;
+            animation:shimmer 1s linear infinite both; }
+  #signin .shimmer::before, #signin .shimmer::after { transition:all .5s ease; opacity:0; content:"";
+            border-radius:inherit; position:absolute; mix-blend-mode:color;
+            inset:var(--inset); pointer-events:none; }
+  #signin:hover .shimmer::before, #signin:hover .shimmer::after { opacity:1;
+            animation:shine 1.2s ease-in 1 forwards; }
+  #signin .shimmer::before { z-index:-1;
+            box-shadow:0 0 calc(var(--inset) * .1) 2px hsl(var(--glow-hue) 20% 95%),
+                       0 0 calc(var(--inset) * .18) 4px hsl(var(--glow-hue) 20% 80%),
+                       0 0 calc(var(--inset) * .33) 4px hsl(var(--glow-hue) 50% 70%),
+                       0 0 calc(var(--inset) * .66) 5px hsl(var(--glow-hue) 100% 70%); }
+  #signin .shimmer::after { z-index:2;
+            box-shadow:inset 0 0 0 1px hsl(var(--glow-hue) 70% 95%),
+                       inset 0 0 2px 1px hsl(var(--glow-hue) 100% 80%),
+                       inset 0 0 5px 2px hsl(var(--glow-hue) 100% 70%); }
+  #signin .text { color:transparent; background-clip:text; -webkit-background-clip:text;
+            background-color:var(--bg); background-repeat:no-repeat;
+            background-image:linear-gradient(120deg, transparent,
+                       hsla(var(--glow-hue),100%,80%,.66) 40%,
+                       hsla(var(--glow-hue),100%,90%,.9) 50%, transparent 52%);
+            background-size:300% 300%; background-position:center 200%; }
+  #signin:hover .text { animation:shineText .66s ease-in 1 both; }
+  @media (prefers-reduced-motion:reduce) {
+    #signin, #signin .shimmer, #signin .text { animation:none; transition:none; scale:1 !important; }
+  }
 </style>
 </head>
 <body>
@@ -269,13 +333,15 @@
   <button id="signout" hidden>Sign out</button>
 </header>
 
-<div class="card" id="gate">
-  <p><b>Sign in with GitHub to see the roadmap.</b></p>
-  <p class="muted">You will be asked once to let the roadmap read the <b>100x-fi</b> milestones and
-     boards, and to write a release due date back when you drag one. What GitHub gives back stays
-     in this browser and is sent nowhere but github.com.</p>
-  <p><button id="signin" class="primary">Sign in with GitHub</button></p>
-  <p class="err" id="gateErr"></p>
+<div id="gate">
+  <div class="gatebox">
+    <button id="signin">
+      <span class="shimmer"></span>
+      <svg class="gh" viewBox="0 0 16 16" width="18" height="18" aria-hidden="true"><path fill="currentColor" d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.012 8.012 0 0 0 16 8c0-4.42-3.58-8-8-8Z"/></svg>
+      <span class="text" id="signinText">Sign in with GitHub</span>
+    </button>
+    <p class="err" id="gateErr"></p>
+  </div>
 </div>
 
 <div class="card flush">
@@ -458,6 +524,10 @@ const randStr = n => b64url(crypto.getRandomValues(new Uint8Array(n)))
 const s256 = async s => b64url(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(s)))
 const CONFIGURED = Boolean(CLIENT_ID && EXCHANGE)
 
+// the signed out page is the whole viewport, so it goes on and off as one class
+const gateOn  = () => $('gate').classList.add('on')
+const gateOff = () => $('gate').classList.remove('on')
+
 async function signIn() {
   const verifier = randStr(48)           // 64 characters, inside GitHub's 43-128 range
   const state = randStr(16)
@@ -470,7 +540,7 @@ async function signIn() {
 }
 
 function gateFail(msg) {
-  $('gate').style.display = 'block'
+  gateOn()
   $('gateErr').textContent = msg
   return true                            // a failed login is still not a plain signed-out page
 }
@@ -490,10 +560,10 @@ async function finishSignIn() {
   if (!saved || saved.state !== q.get('state'))
     return gateFail('That sign-in did not come back to the tab that started it. Try again.')
 
-  $('gate').style.display = 'block'
+  gateOn()
   $('gateErr').textContent = ''
   $('signin').disabled = true
-  $('signin').textContent = 'Signing in\u2026'
+  $('signinText').textContent = 'Signing in\u2026'
   try {
     const res = await fetch(EXCHANGE, {
       method: 'POST', headers: { 'Content-Type':'application/json' },
@@ -507,7 +577,7 @@ async function finishSignIn() {
     return gateFail('Could not finish the sign-in: ' + e.message)
   } finally {
     $('signin').disabled = false
-    $('signin').textContent = 'Sign in with GitHub'
+    $('signinText').textContent = 'Sign in with GitHub'
   }
   return true
 }
@@ -1516,12 +1586,12 @@ function paint(when) {
 let loading = false
 async function load(force) {
   if (!token()) {
-    $('gate').style.display = 'block'
+    gateOn()
     $('signout').hidden = true
     $('tl').textContent = ''; $('table').innerHTML = ''
     return
   }
-  $('gate').style.display = 'none'
+  gateOff()
   $('signout').hidden = false
   const cached = readCache()
   if (!force && cached && cached.closedMs >= closedMs && Date.now() - cached.at < REFRESH_MS) {
@@ -1550,7 +1620,7 @@ async function load(force) {
       $('table').innerHTML = ''                  // clear the skeleton, it would look like data
       $('table').removeAttribute('aria-busy')
     }
-    if (/rejected|access/i.test(e.message)) { $('gate').style.display = 'block'; $('gateErr').textContent = e.message }
+    if (/rejected|access/i.test(e.message)) { gateOn(); $('gateErr').textContent = e.message }
   } finally { loading = false }
 }
 
@@ -1611,7 +1681,7 @@ $('signout').onclick = signOut
 setInterval(() => { if (!document.hidden) load(true) }, REFRESH_MS)
 
 if (!CONFIGURED) {
-  $('gate').style.display = 'block'
+  gateOn()
   $('signin').disabled = true
   $('gateErr').textContent = 'This copy of the page has no CLIENT_ID or EXCHANGE set, so there is '
     + 'nothing to sign in to. See auth/README.md in the repo.'
