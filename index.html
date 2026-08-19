@@ -151,9 +151,10 @@
   .vis-labelset .vis-label.g-closed { color:#8c959f; }
   .glab { display:flex; align-items:center; gap:8px; width:100%; min-width:0; }
   .gname { flex:1 1 auto; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-  .gopen { flex:0 0 auto; color:var(--soft-muted); text-decoration:none; font-size:13px; line-height:1;
-           padding:3px 4px; border-radius:6px; }
-  .gopen:hover { color:var(--link); background:var(--surface-soft); }
+  .gopen, .gcopy { flex:0 0 auto; color:var(--soft-muted); text-decoration:none; font-size:13px;
+           line-height:1; padding:3px 4px; border-radius:6px; }
+  .gopen:hover, .gcopy:hover { color:var(--link); background:var(--surface-soft); }
+  .gcopy { cursor:pointer; user-select:none; }
   .vis-foreground .vis-group { border-bottom:1px solid #eef1f4; }
   .vis-item.vis-background.off { background:rgba(140,149,159,.20); }
   .vis-item.vis-background.holiday { background:rgba(207,34,46,.10); }
@@ -882,6 +883,21 @@ function blocksEl(r, i) {
   return wrap
 }
 
+// the full milestone title, date prefix and all, which is what a GitHub filter wants
+function copyEl(title, cls) {
+  const c = elem('span', cls)
+  c.textContent = '⧉'
+  c.dataset.tip = 'Copy the milestone name'
+  c.onclick = e => {
+    e.stopPropagation()
+    navigator.clipboard.writeText(title).then(() => {
+      c.textContent = '✓'
+      setTimeout(() => { c.textContent = '⧉' }, 1200)
+    }, () => toast('The browser would not give the page the clipboard.', 'err'))
+  }
+  return c
+}
+
 function tickEl(r) {
   const t = elem('span', 'tick gtick' + (r.inSprint ? ' on' : ''))
   t.textContent = r.inSprint ? '☑' : '☐'
@@ -913,7 +929,7 @@ function labelEl(r) {
   open.rel = 'noopener'
   open.title = 'Open the board filtered to this milestone'
   open.textContent = '↗'
-  wrap.append(tickEl(r), name, pill, cnt, open)
+  wrap.append(tickEl(r), name, pill, cnt, copyEl(r.title, 'gcopy'), open)
   return wrap
 }
 function shading(from, to) {
@@ -1501,7 +1517,8 @@ const COLS = [
       + (r.inSprint ? '☑' : '☐') + '</span>',
     val:r => r.state === 'closed' ? 2 : r.inSprint ? 0 : 1 },
   { k:'name',  h:'Milestone', cell:r => '<a class="rel" target="_blank" rel="noopener" href="'
-      + PROJECT_SLICE + encodeURIComponent(r.title) + '">' + esc(r.name) + '</a>',
+      + PROJECT_SLICE + encodeURIComponent(r.title) + '">' + esc(r.name) + '</a>'
+      + '<span class="gcopy copy" data-t="' + esc(r.title) + '" data-tip="Copy the milestone name">⧉</span>',
     val:r => r.name.toLowerCase() },
   { k:'state', h:'State',
     cell:r => '<span class="pill ' + r.state + '" data-tip="' + esc(stateWhy(r)) + '">'
@@ -1550,6 +1567,9 @@ function drawTable() {
     const k = th.dataset.k
     if (k === sortKey) sortDir = -sortDir; else { sortKey = k; sortDir = 1 }
     drawTable()
+  })
+  $('table').querySelectorAll('.copy').forEach(el => {
+    el.replaceWith(copyEl(el.dataset.t, el.className))
   })
   $('table').querySelectorAll('.tick').forEach(el => {
     el.onclick = () => toggleSprint(el.dataset.t)
