@@ -396,6 +396,7 @@
 <script type="module">
 const OWNER = '100x-fi'
 const REPOS = ['zai-backend','zai-frontend','zai-bo-frontend','ingfah-rag','ingfah-dev-docs','zai-docs']
+const BOARD_NUMBER = 6                      // the project the statuses are read from
 const PROJECT_SLICE = 'https://github.com/orgs/100x-fi/projects/6/views/5?sliceBy%5Bvalue%5D='
 
 // github.com's OAuth token endpoint sends no CORS headers, so a page served from GitHub Pages
@@ -468,6 +469,8 @@ const MS_FIELDS = `
       number state
       issueType{ name }
       assignees(first:5){ nodes{ login avatarUrl } }
+      projectItems(first:5){ nodes{ project{ number }
+        fieldValueByName(name:"Status"){ ... on ProjectV2ItemFieldSingleSelectValue { name } } } }
       timelineItems(first:40, itemTypes:[PROJECT_V2_ITEM_STATUS_CHANGED_EVENT]){
         nodes{ ... on ProjectV2ItemStatusChangedEvent { createdAt previousStatus status } }
       }
@@ -688,12 +691,21 @@ function build(all) {
     for (const i of row.issues) {
       const t = (i.issueType && i.issueType.name) || 'no type'
       types[t] = (types[t] || 0) + 1
+      // The board's own Status field, which is the thing being read on the board. The event
+      // trail underneath it only answers where a card has BEEN, so a card that was set once and
+      // never moved has no event at all and used to read as Backlog. The trail is still the
+      // fallback for a card that is not on the board.
+      const item = i.projectItems.nodes.find(n => n.project && n.project.number === BOARD_NUMBER)
+      const board = item && item.fieldValueByName ? item.fieldValueByName.name : null
       const last = [...i.timelineItems.nodes].sort((a,b) => a.createdAt.localeCompare(b.createdAt)).pop()
-      // a closed issue is finished whatever the board still says; a card that never reached the
-      // board has no status of its own, so it sits in Backlog
-      const now = i.state === 'CLOSED' ? STATUS_DONE : (last && last.status) || 'Backlog'
+      // a closed issue is finished whatever the board still says; a card on no board at all has
+      // no status of its own, so it sits in Backlog
+      const now = i.state === 'CLOSED' ? STATUS_DONE : board || (last && last.status) || 'Backlog'
       statuses[now] = (statuses[now] || 0) + 1
-      cards.push({ repo:i.repo, number:i.number, type:t, status:now })
+      cards.push({ repo:i.repo, number:i.number, type:t, status:now,
+        // the two ways the block can disagree with the board, said out loud in the tooltip
+        stale: i.state === 'CLOSED' && board && board !== STATUS_DONE ? board : null,
+        offBoard: !item })
       for (const a of i.assignees.nodes) {
         const p = people.get(a.login) || { login:a.login, avatar:a.avatarUrl, n:0, qa:QA.has(a.login) }
         p.n++; people.set(a.login, p)
@@ -821,6 +833,15 @@ function tickTip(r) {
        : 'Set a sprint to queue this after it'
 }
 
+// A block only ever shows one status, so where the block and the board differ it has to say
+// which one it is showing and why, or the board looks out of sync with no way to tell.
+function whyStatus(c) {
+  if (c.stale) return '<br><i>closed on GitHub, the board still says '
+    + esc(STATUS_SHORT[c.stale] || c.stale) + '</i>'
+  if (c.offBoard) return '<br><i>not on the board, so it counts as Backlog</i>'
+  return ''
+}
+
 /* ---- timeline ---- */
 let timeline = null, items = null
 function faces(list) {
@@ -855,7 +876,7 @@ function blocksEl(r, i) {
     b.style.background = grey ? '#dde2e7' : (STATUS_COLOR[c.status] || '#afb8c1')
     b.style.borderBottomColor = grey ? '#c6cdd5' : (TYPE_COLOR[c.type] || TYPE_COLOR['no type'])
     b.dataset.tip = '<b>' + esc(REPO_SHORT[c.repo] || c.repo) + ' #' + c.number + '</b> &middot; '
-      + esc(c.type) + '<br>' + esc(STATUS_SHORT[c.status] || c.status)
+      + esc(c.type) + '<br>' + esc(STATUS_SHORT[c.status] || c.status) + whyStatus(c)
     wrap.appendChild(b)
   }
   return wrap
@@ -1423,7 +1444,7 @@ function cardBlocks(r, kinds, what) {
   const bar = !list.length ? '<span class="cards none" style="width:' + w + 'px"></span>'
     : '<span class="cards" style="width:' + w + 'px">' + list.map(c => {
         const tip = '<b>' + head + '</b><br>' + esc(REPO_SHORT[c.repo] || c.repo) + ' #' + c.number
-          + ' &middot; ' + esc(c.type) + '<br>' + esc(STATUS_SHORT[c.status] || c.status)
+          + ' &middot; ' + esc(c.type) + '<br>' + esc(STATUS_SHORT[c.status] || c.status) + whyStatus(c)
         return '<i class="' + (c.type === 'no type' ? 'notype' : '') + '" style="background:'
           + (TYPE_COLOR[c.type] || TYPE_COLOR['no type']) + '" data-tip="' + esc(tip) + '"></i>'
       }).join('') + '</span>'
