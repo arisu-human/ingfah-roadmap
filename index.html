@@ -486,22 +486,30 @@ const MS_FIELDS = `
 // Closed milestones start small because only the last two weeks are drawn; Show older asks for
 // more of them, once, on demand.
 const OPEN_MS = 30            // biggest repo has 20 open milestones today
+// GitHub resolves only so much nested data per query and says nothing when it stops. Asking
+// for 30 milestones at once came back with the timeline of 11 zai-backend cards missing
+// entirely and others cut short, which read on the page as cards sitting in Backlog and as
+// releases that had started being drawn as plans. Ten milestones a page comes back whole.
+// The points cost is the same either way, it is only more round trips.
+const PAGE_MS = 10
 const ISSUES  = 70            // biggest milestone ever had 64 cards
 // zai-backend closed 12 milestones inside one 14 day window, so 10 was already too few
 let closedMs  = 20            // grows when Show older is pressed
 const RATE_HEAD = `rateLimit{ remaining resetAt } viewer{ login }`
+const PAGE_INFO = `pageInfo{ hasNextPage endCursor }`
 const Q_OPEN = `
-query($owner:String!,$name:String!,$ms:Int!,$iss:Int!){
+query($owner:String!,$name:String!,$ms:Int!,$iss:Int!,$after:String){
   ${RATE_HEAD}
   repository(owner:$owner,name:$name){
-    milestones(first:$ms, states:OPEN){ nodes{ ${MS_FIELDS} } }
+    milestones(first:$ms, after:$after, states:OPEN){ ${PAGE_INFO} nodes{ ${MS_FIELDS} } }
   }
 }`
 const Q_CLOSED = `
-query($owner:String!,$name:String!,$ms:Int!,$iss:Int!){
+query($owner:String!,$name:String!,$ms:Int!,$iss:Int!,$after:String){
   ${RATE_HEAD}
   repository(owner:$owner,name:$name){
-    milestones(first:$ms, states:CLOSED, orderBy:{field:DUE_DATE, direction:DESC}){ nodes{ ${MS_FIELDS} } }
+    milestones(first:$ms, after:$after, states:CLOSED, orderBy:{field:DUE_DATE, direction:DESC}){
+      ${PAGE_INFO} nodes{ ${MS_FIELDS} } }
   }
 }`
 
@@ -596,11 +604,11 @@ function signOut() {
   location.href = REDIRECT
 }
 
-async function ask(query, name, ms) {
+async function ask(query, name, ms, after) {
   const res = await fetch('https://api.github.com/graphql', {
     method:'POST',
     headers:{ 'Authorization':'Bearer ' + token(), 'Content-Type':'application/json' },
-    body: JSON.stringify({ query, variables:{ owner:OWNER, name, ms, iss:ISSUES } })
+    body: JSON.stringify({ query, variables:{ owner:OWNER, name, ms, iss:ISSUES, after:after || null } })
   })
   // revoked, or the org withdrew the app; either way the way back is a fresh sign-in
   if (res.status === 401) {
@@ -622,23 +630,37 @@ async function ask(query, name, ms) {
   }
   const repo = json.data && json.data.repository
   if (!repo) throw new Error(noAccess(name))
-  return repo.milestones.nodes
+  return repo.milestones
+}
+
+// Walk the pages until `want` milestones are in hand, and say whether GitHub still had more.
+async function askAll(query, name, want) {
+  const nodes = []
+  let after = null
+  while (nodes.length < want) {
+    const page = await ask(query, name, Math.min(PAGE_MS, want - nodes.length), after)
+    nodes.push(...page.nodes)
+    if (!page.pageInfo.hasNextPage) return { nodes, more:false }
+    after = page.pageInfo.endCursor
+  }
+  return { nodes, more:true }
 }
 
 let truncated = []                       // milestones holding more cards than one page returns
 let capped = []                          // repos where the milestone page came back full
 
 async function fetchRepo(name) {
-  const [open, closed] = await Promise.all([ask(Q_OPEN, name, OPEN_MS), ask(Q_CLOSED, name, closedMs)])
-  for (const m of [...open, ...closed]) {
+  const [open, closed] = await Promise.all([askAll(Q_OPEN, name, OPEN_MS),
+                                            askAll(Q_CLOSED, name, closedMs)])
+  for (const m of [...open.nodes, ...closed.nodes]) {
     if (m.issues.totalCount > m.issues.nodes.length) truncated.push(name + ' ' + m.title)
   }
   // a full page means there is probably more behind it, and staying quiet about that would
   // read as "this is everything"
-  if (open.length === OPEN_MS || closed.length === closedMs) capped.push(name)
+  if (open.more || closed.more) capped.push(name)
   return [
-    ...open.map(m => ({ ...m, repo:name, isClosed:false })),
-    ...closed.map(m => ({ ...m, repo:name, isClosed:true }))
+    ...open.nodes.map(m => ({ ...m, repo:name, isClosed:false })),
+    ...closed.nodes.map(m => ({ ...m, repo:name, isClosed:true }))
   ]
 }
 
