@@ -259,6 +259,13 @@
   .toast.ok  { border-left-color:#39bf45; }
   .toast.err { border-left-color:#ff8182; }
   .toast.out { opacity:0; transition:opacity .2s; }
+  /* a write that is still running: it stays until the work says it is finished */
+  .toast.busy { border-left-color:#00BBA7; cursor:default; display:flex; align-items:center; gap:10px; }
+  .toast.busy::before { content:''; flex:0 0 auto; width:13px; height:13px; border-radius:50%;
+            border:2px solid rgba(255,255,255,.35); border-top-color:#00BBA7;
+            animation:spin .7s linear infinite; }
+  @keyframes spin { to { transform:rotate(360deg) } }
+  @media (prefers-reduced-motion:reduce) { .toast.busy::before { animation-duration:2.4s } }
   @media (prefers-reduced-motion:reduce) { .toast { animation:none } }
   /* the hourly GitHub budget: a bar rather than a number, so an unusual level is seen and
      not read. Amber under a quarter left, red under a tenth. */
@@ -1314,6 +1321,22 @@ function toast(msg, kind) {
   setTimeout(close, kind === 'err' ? 12000 : 4000)
 }
 
+// A toast that does NOT time out: it spins until the thing it is reporting is really finished,
+// and says what it is on now. Nothing else on the page shows that a write is still running.
+function busyToast(msg) {
+  let box = $('toasts')
+  if (!box) { box = elem('div'); box.id = 'toasts'; document.body.appendChild(box) }
+  const t = elem('div', 'toast busy')
+  const line = elem('span')
+  line.textContent = msg
+  t.appendChild(line)
+  box.appendChild(t)
+  return {
+    set: text => { line.textContent = text },
+    done: () => { t.classList.add('out'); setTimeout(() => t.remove(), 200) }
+  }
+}
+
 /* ---- drag the right edge of a bar to move the due date ---- */
 let pending = null, renameTo = null, renameOn = false
 const prettyDue = d => d ? pretty(d) : 'no due date'
@@ -1420,11 +1443,20 @@ $('askGo').onclick = async () => {
   $('askGo').disabled = true
   $('askGo').textContent = 'Saving...'
   const won = []
+  // one spinner for the whole job: every repo, then the reload that proves it landed
+  const spin = busyToast('Moving ' + pretty(due) + ' into ' + targets.length + ' repo'
+    + (targets.length > 1 ? 's' : '') + '...')
   try {
-    for (const t of targets) won.push(await setDue(t, due, title))  // one at a time, so a failure names the repo
+    for (const t of targets) {                 // one at a time, so a failure names the repo
+      spin.set('Saving ' + t.repo + ' #' + t.number + ' \u00b7 ' + (won.length + 1)
+        + ' of ' + targets.length + '...')
+      won.push(await setDue(t, due, title))
+    }
     localStorage.removeItem(CACHE)     // a refresh must never trust the old dates again
     cancelAsk()
+    spin.set('Saved in ' + won.join(', ') + ' \u00b7 reading it back from GitHub...')
     await load(true)                   // straight from GitHub, the cache is gone by now
+    spin.done()
 
     // Close the loop. The write is confirmed and the data is freshly fetched, so if the page
     // still shows the old date something between the two is wrong and it must be said out
@@ -1441,6 +1473,7 @@ $('askGo').onclick = async () => {
         + (title ? ' · renamed to ' + title.slice(0, 8) : ''), 'ok')
     }
   } catch (e) {
+    spin.done()
     // a partial write is the dangerous case: say which repos already changed
     const msg = e.message + (won.length ? ' — already changed: ' + won.join(', ') : '')
     $('askText').innerHTML = '<span class="err">' + esc(msg) + '</span>'
