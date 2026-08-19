@@ -242,8 +242,10 @@
   .vis-custom-time.cursor { background:var(--ink); width:2px; }
   .vis-custom-time.cursor > .vis-custom-time-marker { background:var(--ink); color:#fff; font-size:11px;
              font-weight:500; padding:2px 7px; border-radius:6px; top:2px; }
+  /* normal-wrapping with a cap, not nowrap: a card title can be a whole error message and
+     nowrap ran it across the full screen */
   #tip { position:fixed; z-index:9; display:none; pointer-events:none; background:var(--ink); color:#fff;
-         font-size:12px; padding:6px 10px; border-radius:6px; white-space:nowrap; line-height:1.5;
+         font-size:12px; padding:6px 10px; border-radius:6px; max-width:380px; line-height:1.5;
          box-shadow:0 2px 8px rgba(0,0,0,.25); }
   #tip img { width:16px; height:16px; border-radius:50%; vertical-align:-3px; margin-right:5px; }
   /* the confirm bar borrows the cream callout surface from the design system */
@@ -502,7 +504,7 @@ const MS_FIELDS = `
   issues(first:$iss){
     totalCount
     nodes{
-      number
+      number title
       issueType{ name }
       assignees(first:5){ nodes{ login avatarUrl } }
       projectItems(first:5){ nodes{ project{ number }
@@ -774,7 +776,8 @@ function build(all) {
       const last = [...i.timelineItems.nodes].sort((a,b) => a.createdAt.localeCompare(b.createdAt)).pop()
       const now = board || (last && last.status) || 'Backlog'
       statuses[now] = (statuses[now] || 0) + 1
-      cards.push({ repo:i.repo, number:i.number, type:t, status:now, offBoard: !item })
+      cards.push({ repo:i.repo, number:i.number, type:t, status:now, offBoard: !item,
+        title: i.title, people: i.assignees.nodes })
       for (const a of i.assignees.nodes) {
         const p = people.get(a.login) || { login:a.login, avatar:a.avatarUrl, n:0, qa:QA.has(a.login) }
         p.n++; people.set(a.login, p)
@@ -917,6 +920,19 @@ function whyStatus(c) {
   return c.offBoard ? '<br><i>not on the board, so it has no status</i>' : ''
 }
 
+// what one card block says on hover: where it is, what it is called, who is on it.
+// Old cached rows predate the title and the assignees, so both lines vanish gracefully
+// until the next refresh.
+function cardTip(c) {
+  return '<b>' + esc(REPO_SHORT[c.repo] || c.repo) + ' #' + c.number + '</b> &middot; ' + esc(c.type)
+    + (c.title ? '<br>' + esc(c.title) : '')
+    + '<br>' + esc(STATUS_SHORT[c.status] || c.status) + whyStatus(c)
+    + (c.people && c.people.length
+        ? '<br>' + c.people.map(p => '<img src="' + esc(p.avatarUrl) + '&s=32"> '
+            + esc(p.login)).join('<br>')
+        : '')
+}
+
 /* ---- timeline ---- */
 let timeline = null, items = null
 function faces(list) {
@@ -951,8 +967,7 @@ function blocksEl(r, i) {
     const b = elem('i', c.type === 'no type' ? 'notype' : '')
     b.style.background = grey ? '#dde2e7' : (STATUS_COLOR[c.status] || '#afb8c1')
     b.style.borderBottomColor = grey ? '#c6cdd5' : (TYPE_COLOR[c.type] || TYPE_COLOR['no type'])
-    b.dataset.tip = '<b>' + esc(REPO_SHORT[c.repo] || c.repo) + ' #' + c.number + '</b> &middot; '
-      + esc(c.type) + '<br>' + esc(STATUS_SHORT[c.status] || c.status) + whyStatus(c)
+    b.dataset.tip = cardTip(c)
     wrap.appendChild(b)
   }
   return wrap
@@ -1648,8 +1663,7 @@ function cardBlocks(r, kinds, what) {
   const head = Object.entries(counts).map(([t, n]) => n + ' ' + esc(t)).join(' &middot; ')
   const bar = !list.length ? '<span class="cards none" style="width:' + w + 'px"></span>'
     : '<span class="cards" style="width:' + w + 'px">' + list.map(c => {
-        const tip = '<b>' + head + '</b><br>' + esc(REPO_SHORT[c.repo] || c.repo) + ' #' + c.number
-          + ' &middot; ' + esc(c.type) + '<br>' + esc(STATUS_SHORT[c.status] || c.status) + whyStatus(c)
+        const tip = '<b>' + head + '</b><br>' + cardTip(c)
         return '<i class="' + (c.type === 'no type' ? 'notype' : '') + '" style="background:'
           + (TYPE_COLOR[c.type] || TYPE_COLOR['no type']) + '" data-tip="' + esc(tip) + '"></i>'
       }).join('') + '</span>'
