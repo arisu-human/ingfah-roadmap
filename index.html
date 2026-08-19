@@ -260,6 +260,17 @@
   .toast.err { border-left-color:#ff8182; }
   .toast.out { opacity:0; transition:opacity .2s; }
   @media (prefers-reduced-motion:reduce) { .toast { animation:none } }
+  /* the hourly GitHub budget: a bar rather than a number, so an unusual level is seen and
+     not read. Amber under a quarter left, red under a tenth. */
+  .quota { display:inline-flex; align-items:center; gap:6px; font-size:11px; color:var(--muted);
+           font-variant-numeric:tabular-nums; }
+  .quota .qbar { display:block; width:64px; height:6px; border-radius:3px;
+                 background:var(--surface-soft); border:1px solid var(--hairline);
+                 overflow:hidden; }
+  .quota .qbar i { display:block; height:100%; background:#4ac26b; }
+  .quota.mid .qbar i { background:#f2cc60; }
+  .quota.low .qbar i { background:#e16f24; }
+  .quota.low { color:var(--late); }
   .err { color:#b62324; }
   /* ---- signed out: one button on a dark ground, nothing else ---- */
   /* The shimmer is a conic mask spun around the button, with two glow rings that only wake up
@@ -334,6 +345,8 @@
   <h1>ingfah release roadmap</h1>
   <span class="muted" id="stamp"></span>
   <button id="refresh">Refresh</button>
+  <span class="sep"></span>
+  <span class="quota" id="quota" hidden></span>
   <button id="signout" hidden>Sign out</button>
 </header>
 
@@ -616,7 +629,7 @@ async function ask(query, name, ms, after) {
     throw new Error('GitHub rejected the sign-in. Sign in again.')
   }
   const json = await res.json()
-  if (json.data && json.data.rateLimit) rate = json.data.rateLimit
+  if (json.data && json.data.rateLimit) { rate = json.data.rateLimit; paintQuota() }
   if (json.data && json.data.viewer) me = json.data.viewer.login
   if (json.errors) {
     const e = json.errors[0]
@@ -1651,6 +1664,21 @@ function skeleton(n = 10) {
   const head = '<tr>' + COLS.map(c => '<th>' + c.h + '</th>').join('') + '</tr>'
   $('table').innerHTML = head + ('<tr>' + cells + '</tr>').repeat(n)
   $('table').setAttribute('aria-busy', 'true')
+}
+
+// Called wherever GitHub answers, not only on a full paint: one Refresh is 10 or so queries
+// and the bar is the only place the cost of them shows.
+const BUDGET = 5000
+function paintQuota() {
+  const q = $('quota')
+  if (!rate) { q.hidden = true; return }
+  const left = Math.max(0, Math.min(100, rate.remaining / BUDGET * 100))
+  q.hidden = false
+  q.className = 'quota' + (left < 10 ? ' low' : left < 25 ? ' mid' : '')
+  q.innerHTML = '<span class="qbar"><i style="width:' + left.toFixed(1) + '%"></i></span>'
+    + '<span>' + rate.remaining + '</span>'
+  q.dataset.tip = 'GitHub API budget &middot; ' + rate.remaining + ' of ' + BUDGET + ' left this hour'
+    + (rate.resetAt ? '<br>full again at ' + new Date(rate.resetAt).toLocaleTimeString() : '')
 }
 
 /* ---- load ---- */
