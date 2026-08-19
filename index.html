@@ -1032,10 +1032,12 @@ const toDay = d => new Date(Math.round((+d + TZ_MS) / 864e5) * 864e5).toISOStrin
 
 function drawTimeline(rows) {
   const shown = rows.filter(inWindow)
-  // Ticked releases are one block at the top. Sorted by date alone an unticked release with an
-  // earlier due date lands in the middle of the sprint, which is the one thing being read here.
-  // The sort is stable, so inside each half the date order is untouched.
-  if (shown.some(r => r.inSprint)) shown.sort((a, b) => (a.inSprint ? 0 : 1) - (b.inSprint ? 0 : 1))
+  // Read top to bottom: what is already closed, then the sprint being worked on now, then
+  // everything queued behind it. Sorted by date alone an unticked release with an earlier due
+  // date lands in the middle of the sprint, which is the one thing being read here. The sort is
+  // stable, so inside each band the date order is untouched, and nothing moves until a tick.
+  const band = r => r.state === 'closed' ? 0 : r.inSprint ? 1 : 2
+  if (shown.some(r => r.inSprint)) shown.sort((a, b) => band(a) - band(b))
   shownCache = shown
   if (!shown.length) { $('tl').textContent = 'Nothing to show.'; return }
   $('tl').classList.toggle('sprint-focus', shown.some(r => r.inSprint))
