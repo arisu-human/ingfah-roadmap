@@ -88,6 +88,8 @@
   .tick:hover { color:var(--ink); background:var(--surface-soft); }
   .tick.on { color:#009181; }
   .tick:focus-visible { outline:2px solid var(--focus); outline-offset:1px; }
+  /* the same tick in the chart's name column, sized down to the 12px label row */
+  .gtick { flex:0 0 auto; font-size:13px; padding:1px 2px; }
 
   /* one equal block per card: fill = card type, stripe underneath = repo */
   /* 19px block with a 2px item margin is the same 23px row as a 17px block with 3px */
@@ -720,6 +722,15 @@ const inWindow = r => r.state !== 'closed' ||
 
 const STATE_LABEL = { upcoming:'upcoming', running:'in progress', slipped:'slipped', closed:'closed' }
 
+/* ---- this sprint tick: the same control in the table and in the chart ---- */
+function tickTip(r) {
+  return r.startedAt ? 'Already started on ' + pretty(r.startedAt)
+           + ', so the bar keeps that date either way'
+       : r.inSprint ? 'Planned to start now'
+       : sprint && sprint.to ? 'Queued for the first working day after the sprint'
+       : 'Set a sprint to queue this after it'
+}
+
 /* ---- timeline ---- */
 let timeline = null, items = null
 function faces(list) {
@@ -760,7 +771,19 @@ function blocksEl(r, i) {
   return wrap
 }
 
-// {name} (done/total) [open in a new tab]
+function tickEl(r) {
+  const t = elem('span', 'tick gtick' + (r.inSprint ? ' on' : ''))
+  t.textContent = r.inSprint ? '☑' : '☐'
+  t.dataset.tip = tickTip(r)
+  t.tabIndex = 0
+  t.setAttribute('role', 'checkbox')
+  t.setAttribute('aria-checked', !!r.inSprint)
+  t.onclick = e => { e.stopPropagation(); toggleSprint(r.title) }
+  t.onkeydown = e => { if (e.key === ' ' || e.key === 'Enter') { e.preventDefault(); t.click() } }
+  return t
+}
+
+// [tick] {name} (done/total) [open in a new tab]
 function labelEl(r) {
   const wrap = elem('span', 'glab')
   const name = elem('span', 'gname')
@@ -774,7 +797,7 @@ function labelEl(r) {
   open.rel = 'noopener'
   open.title = 'Open the board filtered to this milestone'
   open.textContent = '↗'
-  wrap.append(name, cnt, open)
+  wrap.append(tickEl(r), name, cnt, open)
   return wrap
 }
 function shading(from, to) {
@@ -825,6 +848,10 @@ const toDay = d => new Date(Math.round(+d / 864e5) * 864e5).toISOString().slice(
 
 function drawTimeline(rows) {
   const shown = rows.filter(inWindow)
+  // Ticked releases are one block at the top. Sorted by date alone an unticked release with an
+  // earlier due date lands in the middle of the sprint, which is the one thing being read here.
+  // The sort is stable, so inside each half the date order is untouched.
+  if (shown.some(r => r.inSprint)) shown.sort((a, b) => (a.inSprint ? 0 : 1) - (b.inSprint ? 0 : 1))
   shownCache = shown
   if (!shown.length) { $('tl').textContent = 'Nothing to show.'; return }
   $('tl').classList.toggle('sprint-focus', shown.some(r => r.inSprint))
@@ -934,7 +961,7 @@ function drawTimeline(rows) {
     groups.clear(); groups.add(groupData)
   }
   // open on the whole road ahead: a week before today, out to the last future release
-  if (firstDraw) { firstDraw = false; showFuture(shown) }
+  if (firstDraw) { firstDraw = false; showFuture(shown, DEFAULT_ZOOM) }
   tuneAxis(); placeSprint()
   $('older').title = 'Showing releases closed in the last ' + windowDays + ' days. Load further back.'
 }
@@ -1045,12 +1072,18 @@ $('sprintClear').onclick = () => {
   $('sprintBox').hidden = true
 }
 
-function showFuture(shown) {
+// The zoom buttons step by 0.4, and vis divides the window by 1 + that, so three clicks in is
+// 1.4^3. The window is cut from the far end only, so today stays where the Fit view puts it.
+const DEFAULT_ZOOM = Math.pow(1.4, 3)
+function showFuture(shown, zoom) {
   const rows = shown || rowsCache.filter(inWindow)
   if (!timeline || !rows.length) return
   const today = new Date().toISOString().slice(0,10)
   const hi = rows.reduce((m, r) => r.barEnd > m ? r.barEnd : m, today)
-  timeline.setWindow(plus(today, -7), plus(hi, 7), { animation:false })
+  const from = plus(today, -7), to = plus(hi, 7)
+  const days = Math.round((new Date(to) - new Date(from)) / 864e5)
+  timeline.setWindow(from, zoom ? plus(from, Math.max(7, Math.round(days / zoom))) : to,
+                     { animation:false })
 }
 
 /* ---- toast ---- */
@@ -1332,11 +1365,7 @@ const COLS = [
   { k:'sprint', h:'This Sprint',
     cell:r => '<span class="tick' + (r.inSprint ? ' on' : '') + '" data-t="' + esc(r.title)
       + '" role="checkbox" tabindex="0" aria-checked="' + !!r.inSprint + '" data-tip="'
-      + esc(r.startedAt ? 'Already started on ' + pretty(r.startedAt)
-              + ', so the bar keeps that date either way'
-          : r.inSprint ? 'Planned to start now'
-          : sprint && sprint.to ? 'Queued for the first working day after the sprint'
-          : 'Set a sprint to queue this after it') + '">'
+      + esc(tickTip(r)) + '">'
       + (r.inSprint ? '☑' : '☐') + '</span>',
     val:r => (r.inSprint ? 0 : 1) },
   { k:'name',  h:'Milestone', cell:r => '<a class="rel" target="_blank" rel="noopener" href="'
