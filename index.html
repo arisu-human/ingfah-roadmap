@@ -1003,10 +1003,10 @@ document.addEventListener('pointermove', e => {
   if (!resize || !timeline) return
   const t = timeline.getEventProperties(e).time
   if (!t) return
-  const min = plus(resize.row.barStart, 1)              // a bar never ends before it starts
+  const min = resize.row.barStart                      // a bar never ends before it starts
   const d = toDay(t)
   resize.day = d < min ? min : d
-  items.update({ id: resize.id, end: bkk(resize.day) })
+  items.update({ id: resize.id, end: bkk(plus(resize.day, 1)) })
 })
 const endResize = () => {
   if (!resize) return
@@ -1018,9 +1018,9 @@ const endResize = () => {
 document.addEventListener('pointerup', endResize)
 document.addEventListener('pointercancel', endResize)
 
-// vis hands back an instant; round it to the nearest Bangkok midnight, so the day a bar lands
-// on is the day the pointer was over rather than the day it was in UTC
-const toDay = d => new Date(Math.round((+d + TZ_MS) / 864e5) * 864e5).toISOString().slice(0,10)
+// vis hands back an instant; the day it belongs to is the Bangkok day the pointer is inside,
+// not the nearest line, because the day under the pointer is the day the bar is covering
+const toDay = d => new Date(Math.floor((+d + TZ_MS) / 864e5) * 864e5).toISOString().slice(0,10)
 
 function drawTimeline(rows) {
   const shown = rows.filter(inWindow)
@@ -1044,7 +1044,11 @@ function drawTimeline(rows) {
     id: i, group: i,
     content: blocksEl(r, i),
     start: bkk(r.barStart),
-    end: bkk(r.barEnd > r.barStart ? r.barEnd : plus(r.barStart, 1)),   // never a zero-width bar
+    // The end day is INSIDE the bar. Ending it at the due date drew a bar that stopped at the
+    // line where the due day starts, so a release due on the 19th looked like it ended on the
+    // 18th. It now runs to the start of the next day, which is the same rule the sprint pane
+    // has always used, and a one day release is one column wide instead of nothing.
+    end: bkk(plus(r.barEnd, 1)),
     className: 'st-' + r.state + (r.state === 'closed' ? '' : ' can-drag')
       + (r.inSprint ? ' in-sprint' : '') + (r.planned ? ' planned' : ''),
     url: PROJECT_SLICE + encodeURIComponent(r.title)
