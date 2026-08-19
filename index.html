@@ -144,7 +144,7 @@
               box-shadow:0 1px 3px rgba(0,90,80,.20), inset 0 1px 0 rgba(255,255,255,.9); }
   #tl.grabbing .vis-panel.vis-center, #tl.grabbing .vis-panel.vis-center * { cursor:grabbing !important; }
   #tl.edge .vis-panel.vis-center, #tl.edge .vis-panel.vis-center * { cursor:ew-resize !important; }
-  .vis-panel.vis-left { width:340px; }
+  .vis-panel.vis-left { width:440px; }
   .vis-labelset .vis-label { padding:0 12px 0 14px; display:flex; align-items:center;
                              border-bottom:1px solid #eef1f4; font-size:12px; }
   .vis-labelset .vis-label .vis-inner { width:100%; min-width:0; }
@@ -1160,7 +1160,7 @@ let axisScale = null
 function tuneAxis() {
   if (!timeline) return
   const w = timeline.getWindow()
-  const px = ($('tl').clientWidth - 340) / ((w.end - w.start) / 864e5)   // pixels per day
+  const px = ($('tl').clientWidth - 440) / ((w.end - w.start) / 864e5)   // pixels per day
   const want = px >= 13 ? 'day' : px >= 2.6 ? 'week' : 'month'
   if (want === axisScale) return
   axisScale = want
