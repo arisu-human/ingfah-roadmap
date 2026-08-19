@@ -846,7 +846,11 @@ function applyPlan(rows) {
     r.inSprint = thisSprint.has(r.name) && r.state !== 'closed'
     r.planned = !r.startedAt && r.state !== 'closed'
     const start = r.startedAt || (r.state === 'closed' ? r.born : plannedStart(r))
-    const end = r.late ? r.lastDone : r.due
+    // The bar ends at the DUE date, always. It used to stretch to the last real Done when
+    // that came later, which is true but reads as the due date being wrong: a card moved to
+    // Done this morning pushed two bars one day past the date printed in the table. The late
+    // finish stays in the date column ("done 19 Aug") and in the bar tooltip.
+    const end = r.due
     r.start = start
     r.barStart = start < end ? start : end
     r.barEnd = start < end ? end : start
@@ -910,7 +914,8 @@ function itemTooltip(r) {
   const byRepo = {}
   for (const c of r.cards) byRepo[c.repo] = (byRepo[c.repo] || 0) + 1
   return '<b>' + esc(r.name) + '</b> &middot; ' + STATE_LABEL[r.state] + '<br>'
-    + pretty(r.start) + ' to ' + pretty(r.end)
+    + pretty(r.start) + ' to ' + pretty(r.due)
+    + (r.late && r.lastDone ? ' <i>(last card done ' + pretty(r.lastDone) + ')</i>' : '')
     + (r.startedAt ? '' : ' <i>(nothing started yet)</i>') + '<br>'
     + r.done + ' done' + (r.ready ? ' + ' + r.ready + ' ready for test' : '') + ' of ' + r.total + ' cards<br>'
     + Object.entries(byRepo).map(([k, n]) => REPO_SHORT[k] + ' ' + n).join(' &middot; ') + '<br>'
