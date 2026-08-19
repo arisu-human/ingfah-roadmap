@@ -620,6 +620,8 @@ function signOut() {
 async function ask(query, name, ms, after) {
   const res = await fetch('https://api.github.com/graphql', {
     method:'POST',
+    // no-store: a refresh has to reach GitHub, never a copy of the last answer
+    cache: 'no-store',
     headers:{ 'Authorization':'Bearer ' + token(), 'Content-Type':'application/json' },
     body: JSON.stringify({ query, variables:{ owner:OWNER, name, ms, iss:ISSUES, after:after || null } })
   })
@@ -1810,7 +1812,12 @@ paintTicks()
 
 $('signin').onclick = signIn
 $('search').oninput = drawTable
-$('refresh').onclick = () => load(true)
+$('refresh').onclick = async () => {
+  const b = $('refresh')
+  b.disabled = true
+  b.textContent = 'Refreshing...'
+  try { await load(true) } finally { b.disabled = false; b.textContent = 'Refresh' }
+}
 $('signout').onclick = signOut
 // only refresh while the tab is actually being looked at, so a forgotten tab costs nothing
 setInterval(() => { if (!document.hidden) load(true) }, REFRESH_MS)
