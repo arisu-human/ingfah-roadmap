@@ -119,6 +119,11 @@
   /* the whole chart is a hand tool, apart from the due date handle and the card blocks */
   .vis-panel.vis-center, .vis-panel.vis-center * { cursor:grab; }
   .vis-panel.vis-center .blocks i, #table .cards i { cursor:pointer; }
+  /* the row under the pointer, name and lane together, so a drag grabs the right release */
+  .vis-labelset .vis-label.rowlit { background:rgba(24,29,38,.05); }
+  .vis-foreground .vis-group.rowlit { background:rgba(24,29,38,.035); }
+  .vis-labelset .vis-label.g-sprint.rowlit { background:rgba(0,187,167,.16); }
+  .vis-foreground .vis-group.g-sprint.rowlit { background:rgba(0,187,167,.10); }
   /* The sprint pane floats ON TOP of the bars, so it is a real overlay rather than a vis
      background item: those render behind everything and could not refract what they cover.
      Liquid glass = heavy blur + saturation lift, a mint body tint, a bright specular rim on
@@ -1183,9 +1188,25 @@ function drawTimeline(rows) {
     $('tl').addEventListener('pointermove', e => {
       if (!resize) $('tl').classList.toggle('edge', onEdge(itemAt(e.target), e.clientX))
     })
+    // the row under the pointer lights up, label and lane as one, so the eye can check the
+    // release name before a drag ever starts
+    let litAt = null
+    const litRow = i => {
+      if (i === litAt) return
+      litAt = i
+      $('tl').querySelectorAll('.rowlit').forEach(el => el.classList.remove('rowlit'))
+      if (i == null) return
+      const lab = $('tl').querySelectorAll('.vis-labelset .vis-label')[i]
+      const grp = $('tl').querySelectorAll('.vis-foreground .vis-group')[i]
+      if (lab) lab.classList.add('rowlit')
+      if (grp) grp.classList.add('rowlit')
+    }
+    $('tl').addEventListener('mouseleave', () => litRow(null))
+
     // a vertical line that follows the pointer with the date written on it
     timeline.addCustomTime(new Date(), 'cursor')
     timeline.on('mouseMove', props => {
+      litRow(typeof props.group === 'number' ? props.group : null)
       if (!props.time) return
       timeline.setCustomTime(props.time, 'cursor')
       timeline.setCustomTimeMarker(props.time.toLocaleDateString('en-GB',
