@@ -159,6 +159,10 @@
                              border-bottom:1px solid #eef1f4; font-size:12px; }
   .vis-labelset .vis-label .vis-inner { width:100%; min-width:0; }
   .vis-labelset .vis-label.g-closed { color:#8c959f; }
+  /* a ticked release reads as one mint row across the name column and the chart */
+  .vis-labelset .vis-label.g-sprint { background:rgba(0,187,167,.08); }
+  .vis-foreground .vis-group.g-sprint { background:rgba(0,187,167,.05); }
+  tr.insprint td { background:rgba(0,187,167,.07); }
   .glab { display:flex; align-items:center; gap:8px; width:100%; min-width:0; }
   .gname { flex:1 1 auto; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
   .gopen, .gcopy { flex:0 0 auto; color:var(--soft-muted); text-decoration:none; font-size:13px;
@@ -1060,7 +1064,8 @@ function drawTimeline(rows) {
 
   // one group per release, so every release keeps a row of its own
   const groupData = shown.map((r, i) => ({
-    id: i, order: i, className: 'g-' + r.state, content: labelEl(r)
+    id: i, order: i, className: 'g-' + r.state + (r.inSprint ? ' g-sprint' : ''),
+    content: labelEl(r)
   }))
   const data = shown.map((r, i) => ({
     id: i, group: i,
@@ -1743,7 +1748,7 @@ function drawTable() {
     + '</span></th>').join('') + '</tr>'
   const body = sorted.map(r => {
     scaleRow = r.total                     // every bar in this row is sized by its card count
-    return '<tr class="' + (r.state === 'closed' ? 'closed' : '') + '">'
+    return '<tr class="' + (r.state === 'closed' ? 'closed' : r.inSprint ? 'insprint' : '') + '">'
       + COLS.map(c => '<td class="col-' + c.k + '">' + c.cell(r) + '</td>').join('')
       + '</tr>'
   }).join('')
