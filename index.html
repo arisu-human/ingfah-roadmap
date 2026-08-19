@@ -90,6 +90,9 @@
   .tick:focus-visible { outline:2px solid var(--focus); outline-offset:1px; }
   /* the same tick in the chart's name column, sized down to the 12px label row */
   .gtick { flex:0 0 auto; font-size:13px; padding:1px 2px; }
+  /* a closed release holds the column open so the names stay in line */
+  .gtick.ghost { visibility:hidden; }
+  .glab .pill { padding:1px 7px; font-size:10px; }
 
   /* one equal block per card: fill = card type, stripe underneath = repo */
   /* 19px block with a 2px item margin is the same 23px row as a 17px block with 3px */
@@ -141,7 +144,7 @@
               box-shadow:0 1px 3px rgba(0,90,80,.20), inset 0 1px 0 rgba(255,255,255,.9); }
   #tl.grabbing .vis-panel.vis-center, #tl.grabbing .vis-panel.vis-center * { cursor:grabbing !important; }
   #tl.edge .vis-panel.vis-center, #tl.edge .vis-panel.vis-center * { cursor:ew-resize !important; }
-  .vis-panel.vis-left { width:280px; }
+  .vis-panel.vis-left { width:340px; }
   .vis-labelset .vis-label { padding:0 12px 0 14px; display:flex; align-items:center;
                              border-bottom:1px solid #eef1f4; font-size:12px; }
   .vis-labelset .vis-label .vis-inner { width:100%; min-width:0; }
@@ -764,7 +767,7 @@ function plannedStart(r) {
 function applyPlan(rows) {
   const today = new Date().toISOString().slice(0,10)
   for (const r of rows) {
-    r.inSprint = thisSprint.has(r.title)
+    r.inSprint = thisSprint.has(r.title) && r.state !== 'closed'
     r.planned = !r.startedAt && r.state !== 'closed'
     const start = r.startedAt || (r.state === 'closed' ? r.born : plannedStart(r))
     const end = r.late ? r.lastDone : r.due
@@ -779,6 +782,8 @@ function applyPlan(rows) {
 }
 
 function toggleSprint(title) {
+  const row = rowsCache.find(r => r.title === title)
+  if (row && row.state === 'closed') return       // closed is a fact, not a plan
   if (thisSprint.has(title)) thisSprint.delete(title); else thisSprint.add(title)
   localStorage.setItem('thisSprint', JSON.stringify([...thisSprint]))
   applyPlan(rowsCache)
@@ -844,6 +849,8 @@ function blocksEl(r, i) {
 function tickEl(r) {
   const t = elem('span', 'tick gtick' + (r.inSprint ? ' on' : ''))
   t.textContent = r.inSprint ? '☑' : '☐'
+  // a closed release cannot be planned, so it keeps the space and loses the control
+  if (r.state === 'closed') { t.className = 'tick gtick ghost'; return t }
   t.dataset.tip = tickTip(r)
   t.tabIndex = 0
   t.setAttribute('role', 'checkbox')
@@ -853,12 +860,15 @@ function tickEl(r) {
   return t
 }
 
-// [tick] {name} (done/total) [open in a new tab]
+// [tick] {name} [state] (done/total) [open in a new tab]
 function labelEl(r) {
   const wrap = elem('span', 'glab')
   const name = elem('span', 'gname')
   name.textContent = r.name
   name.title = r.name
+  const pill = elem('span', 'pill ' + r.state)
+  pill.textContent = STATE_LABEL[r.state]
+  pill.dataset.tip = stateWhy(r)
   const cnt = elem('span', 'cnt')
   cnt.textContent = '(' + r.done + '/' + r.total + ')'
   const open = elem('a', 'gopen')
@@ -867,7 +877,7 @@ function labelEl(r) {
   open.rel = 'noopener'
   open.title = 'Open the board filtered to this milestone'
   open.textContent = '↗'
-  wrap.append(tickEl(r), name, cnt, open)
+  wrap.append(tickEl(r), name, pill, cnt, open)
   return wrap
 }
 function shading(from, to) {
@@ -1042,7 +1052,7 @@ let axisScale = null
 function tuneAxis() {
   if (!timeline) return
   const w = timeline.getWindow()
-  const px = ($('tl').clientWidth - 280) / ((w.end - w.start) / 864e5)   // pixels per day
+  const px = ($('tl').clientWidth - 340) / ((w.end - w.start) / 864e5)   // pixels per day
   const want = px >= 13 ? 'day' : px >= 2.6 ? 'week' : 'month'
   if (want === axisScale) return
   axisScale = want
@@ -1433,11 +1443,12 @@ function datesCell(r) {
 }
 const COLS = [
   { k:'sprint', h:'This Sprint',
-    cell:r => '<span class="tick' + (r.inSprint ? ' on' : '') + '" data-t="' + esc(r.title)
+    cell:r => r.state === 'closed' ? ''
+      : '<span class="tick' + (r.inSprint ? ' on' : '') + '" data-t="' + esc(r.title)
       + '" role="checkbox" tabindex="0" aria-checked="' + !!r.inSprint + '" data-tip="'
       + esc(tickTip(r)) + '">'
       + (r.inSprint ? '☑' : '☐') + '</span>',
-    val:r => (r.inSprint ? 0 : 1) },
+    val:r => r.state === 'closed' ? 2 : r.inSprint ? 0 : 1 },
   { k:'name',  h:'Milestone', cell:r => '<a class="rel" target="_blank" rel="noopener" href="'
       + PROJECT_SLICE + encodeURIComponent(r.title) + '">' + esc(r.name) + '</a>',
     val:r => r.name.toLowerCase() },
