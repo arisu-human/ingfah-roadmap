@@ -527,13 +527,27 @@ query($owner:String!,$name:String!,$ms:Int!,$iss:Int!,$after:String){
 }`
 
 const $ = id => document.getElementById(id)
-const day = s => s ? s.slice(0,10) : null
+const day = s => s ? dayOf(+new Date(s)) : null
 const token = () => localStorage.getItem('ghToken') || ''
 const esc = s => String(s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]))
 const pct = (a, b) => b > 0 ? Math.max(0, Math.min(100, a / b * 100)) : 0
-const TOMORROW = new Date(Date.now() + 864e5).toISOString().slice(0,10)
+// Every date on this page is a Bangkok date, whatever clock the browser is set to. A laptop
+// in another zone, or Bangkok itself before 07:00 or after 17:00, used to slide the answer by
+// a day: the UTC date is behind until 07:00 and a card finished at 20:00 was filed as
+// yesterday. Bangkok has no daylight saving, so a fixed +07:00 is the whole story.
+const TZ = 'Asia/Bangkok'
+const TZ_OFF = '+07:00'
+const TZ_MS = 7 * 3600e3
+// the Bangkok date an instant falls in, and the instant a Bangkok date starts at
+const dayOf = ms => new Date(ms + TZ_MS).toISOString().slice(0,10)
+const bkk = iso => new Date(iso + 'T00:00:00' + TZ_OFF)
+const todayISO = () => dayOf(Date.now())
+const TOMORROW = dayOf(Date.now() + 864e5)
+// a date string is already a Bangkok date, so it is printed exactly as it is written
 const pretty = s => new Date(s + 'T00:00:00Z')
   .toLocaleDateString('en-GB', { day:'numeric', month:'short', timeZone:'UTC' })
+const clock = ms => new Date(ms).toLocaleTimeString('en-GB',
+  { hour:'2-digit', minute:'2-digit', timeZone:TZ })
 
 let rate = null                          // what GitHub last told us about the hourly budget
 let me = null                            // the login GitHub says we are signed in as
@@ -637,7 +651,7 @@ async function ask(query, name, ms, after) {
     const e = json.errors[0]
     if (e.type === 'NOT_FOUND') throw new Error(noAccess(name))
     if (e.type === 'RATE_LIMITED' || /rate limit/i.test(e.message)) {
-      const back = rate && rate.resetAt ? new Date(rate.resetAt).toLocaleTimeString() : 'soon'
+      const back = rate && rate.resetAt ? clock(+new Date(rate.resetAt)) : 'soon'
       throw new Error('GitHub hourly API budget is used up. It comes back at ' + back
         + '. The page is showing the last data it loaded.')
     }
@@ -681,7 +695,7 @@ async function fetchRepo(name) {
 
 // One release = one milestone title, merged across every repo that has it.
 function build(all) {
-  const today = new Date().toISOString().slice(0,10)
+  const today = todayISO()
   const by = new Map()
   for (const m of all) {
     if (!by.has(m.title)) by.set(m.title, { title:m.title, due:day(m.dueOn), born:day(m.createdAt),
@@ -807,7 +821,7 @@ function nextWorkday(iso, includeToday) {
 // Where an unstarted release is drawn: in this sprint it begins now, otherwise it queues up
 // on the first working day after the sprint ends.
 function plannedStart(r) {
-  const today = new Date().toISOString().slice(0,10)
+  const today = todayISO()
   if (thisSprint.has(r.title)) return nextWorkday(today, true)
   if (sprint && sprint.to) return nextWorkday(sprint.to, false)
   return TOMORROW
@@ -816,7 +830,7 @@ function plannedStart(r) {
 // Recomputed on every draw rather than baked into build(), because ticking a box or moving
 // the sprint changes the answer without any need to talk to GitHub again.
 function applyPlan(rows) {
-  const today = new Date().toISOString().slice(0,10)
+  const today = todayISO()
   for (const r of rows) {
     r.inSprint = thisSprint.has(r.title) && r.state !== 'closed'
     r.planned = !r.startedAt && r.state !== 'closed'
@@ -858,7 +872,7 @@ function toggleSprint(title) {
 const cleanTitle = t => t.replace(/^\[Closed on \d{8}\]\s*/, '').replace(/^\d{8}\s*/, '').trim()
 // a closed release drops off the page once it has been closed for longer than the window
 const inWindow = r => r.state !== 'closed' ||
-  (r.closedAt || r.end) >= new Date(Date.now() - windowDays * 864e5).toISOString().slice(0,10)
+  (r.closedAt || r.end) >= dayOf(Date.now() - windowDays * 864e5)
 
 const STATE_LABEL = { upcoming:'upcoming', running:'in progress', slipped:'slipped', closed:'closed' }
 
@@ -979,7 +993,7 @@ function shading(from, to) {
     const holiday = HOLIDAYS.has(iso)
     if (holiday || dow === 0 || dow === 6) {
       const next = new Date(d); next.setUTCDate(next.getUTCDate() + 1)
-      bg.push({ id:'bg-' + iso, start:iso, end:next.toISOString().slice(0,10), type:'background',
+      bg.push({ id:'bg-' + iso, start:bkk(iso), end:bkk(next.toISOString().slice(0,10)), type:'background',
                 className: holiday ? 'holiday' : 'off',
                 title: holiday ? 'Thai public holiday' : 'weekend' })
     }
@@ -1000,7 +1014,7 @@ document.addEventListener('pointermove', e => {
   const min = plus(resize.row.barStart, 1)              // a bar never ends before it starts
   const d = toDay(t)
   resize.day = d < min ? min : d
-  items.update({ id: resize.id, end: resize.day })
+  items.update({ id: resize.id, end: bkk(resize.day) })
 })
 const endResize = () => {
   if (!resize) return
@@ -1012,8 +1026,9 @@ const endResize = () => {
 document.addEventListener('pointerup', endResize)
 document.addEventListener('pointercancel', endResize)
 
-// vis hands back a Date; round it to the nearest whole day so a bar always lands on a date
-const toDay = d => new Date(Math.round(+d / 864e5) * 864e5).toISOString().slice(0,10)
+// vis hands back an instant; round it to the nearest Bangkok midnight, so the day a bar lands
+// on is the day the pointer was over rather than the day it was in UTC
+const toDay = d => new Date(Math.round((+d + TZ_MS) / 864e5) * 864e5).toISOString().slice(0,10)
 
 function drawTimeline(rows) {
   const shown = rows.filter(inWindow)
@@ -1034,8 +1049,8 @@ function drawTimeline(rows) {
   const data = shown.map((r, i) => ({
     id: i, group: i,
     content: blocksEl(r, i),
-    start: r.barStart,
-    end: r.barEnd > r.barStart ? r.barEnd : plus(r.barStart, 1),   // never a zero-width bar
+    start: bkk(r.barStart),
+    end: bkk(r.barEnd > r.barStart ? r.barEnd : plus(r.barStart, 1)),   // never a zero-width bar
     className: 'st-' + r.state + (r.state === 'closed' ? '' : ' can-drag')
       + (r.inSprint ? ' in-sprint' : '') + (r.planned ? ' planned' : ''),
     url: PROJECT_SLICE + encodeURIComponent(r.title)
@@ -1052,6 +1067,8 @@ function drawTimeline(rows) {
       // vis item editing is off on purpose: dragging anywhere then pans the view like a hand
       // tool, and the due date is moved by our own handle on the right edge instead
       moveable: true, selectable: false, editable: false, orientation: { axis:'top' },
+      // the axis, the grid and the today line are all drawn on Bangkok days
+      moment: d => vis.moment(d).utcOffset(TZ_OFF),
       margin: { item: { horizontal: 0, vertical: 2 }, axis: 4 },
       showCurrentTime: true, maxHeight: '72vh', groupOrder: 'order',
       format: {
@@ -1101,9 +1118,9 @@ function drawTimeline(rows) {
       if (!props.time) return
       timeline.setCustomTime(props.time, 'cursor')
       timeline.setCustomTimeMarker(props.time.toLocaleDateString('en-GB',
-        { weekday:'short', day:'numeric', month:'short' }), 'cursor', false)
+        { weekday:'short', day:'numeric', month:'short', timeZone:TZ }), 'cursor', false)
       $('dateNow').textContent = props.time.toLocaleDateString('en-GB',
-        { weekday:'long', day:'numeric', month:'long', year:'numeric' })
+        { weekday:'long', day:'numeric', month:'long', year:'numeric', timeZone:TZ })
     })
 
     $('tl').addEventListener('wheel', e => {
@@ -1163,7 +1180,7 @@ function placeSprint() {
   if (!sprint || !sprint.from || !sprint.to) { sprintEl.style.display = 'none'; return }
   const w = timeline.getWindow()
   const box = timeline.dom.center.parentNode.getBoundingClientRect()
-  const at = d => (new Date(d + 'T00:00:00Z') - w.start) / (w.end - w.start) * box.width
+  const at = d => (bkk(d) - w.start) / (w.end - w.start) * box.width
   const x1 = at(sprint.from), x2 = at(plus(sprint.to, 1))   // the end day is included
   if (x2 < 0 || x1 > box.width) { sprintEl.style.display = 'none'; return }
   sprintEl.style.display = 'block'
@@ -1218,7 +1235,7 @@ $('sprintBtn').onclick = () => {
   const on = $('sprintBox').hidden
   $('sprintBox').hidden = !on
   if (!on) return
-  const today = new Date().toISOString().slice(0,10)
+  const today = todayISO()
   // pre-filled with today and a two week sprint, so usually only the day needs changing
   $('sprintFrom').value = toDMY(sprint ? sprint.from : today)
   $('sprintTo').value   = toDMY(sprint ? sprint.to : plus(today, 13))
@@ -1247,11 +1264,11 @@ const DEFAULT_ZOOM = Math.pow(1.4, 3)
 function showFuture(shown, zoom) {
   const rows = shown || rowsCache.filter(inWindow)
   if (!timeline || !rows.length) return
-  const today = new Date().toISOString().slice(0,10)
+  const today = todayISO()
   const hi = rows.reduce((m, r) => r.barEnd > m ? r.barEnd : m, today)
   const from = plus(today, -7), to = plus(hi, 7)
   const days = Math.round((new Date(to) - new Date(from)) / 864e5)
-  timeline.setWindow(from, zoom ? plus(from, Math.max(7, Math.round(days / zoom))) : to,
+  timeline.setWindow(bkk(from), bkk(zoom ? plus(from, Math.max(7, Math.round(days / zoom))) : to),
                      { animation:false })
 }
 
@@ -1680,7 +1697,7 @@ function paintQuota() {
   q.innerHTML = '<span class="qbar"><i style="width:' + left.toFixed(1) + '%"></i></span>'
     + '<span>' + rate.remaining + '</span>'
   q.dataset.tip = 'GitHub API budget &middot; ' + rate.remaining + ' of ' + BUDGET + ' left this hour'
-    + (rate.resetAt ? '<br>full again at ' + new Date(rate.resetAt).toLocaleTimeString() : '')
+    + (rate.resetAt ? '<br>full again at ' + clock(+new Date(rate.resetAt)) + ' Bangkok' : '')
 }
 
 /* ---- load ---- */
@@ -1705,12 +1722,12 @@ function paint(when) {
   const devs = new Set(shown.flatMap(r => r.devs.map(p => p.login))).size
   const qas  = new Set(shown.flatMap(r => r.qas.map(p => p.login))).size
   // short line; the detail lives on hover. Warnings stay visible: silence would read as complete.
-  $('stamp').textContent = new Date(when).toLocaleTimeString([], { hour:'2-digit', minute:'2-digit' })
+  $('stamp').textContent = clock(when)
     + ' · ' + shown.length + ' releases'
     + (n('slipped') ? ' · ' + n('slipped') + ' slipped' : '')
     + (truncated.length ? ' · card count is short on ' + truncated.join(', ') : '')
     + (capped.length ? ' · more releases exist behind ' + capped.join(', ') + ', press Older' : '')
-  $('stamp').dataset.tip = 'updated ' + new Date(when).toLocaleTimeString()
+  $('stamp').dataset.tip = 'updated ' + clock(when) + ' Bangkok (GMT+7)'
     + '<br>' + devs + ' devs &middot; ' + qas + ' QAs'
     + (rate ? '<br>API budget ' + rate.remaining + '/5000' : '')
     + (me ? '<br>signed in as @' + me : '')
