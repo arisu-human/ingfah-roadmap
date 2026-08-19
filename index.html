@@ -1080,7 +1080,11 @@ function drawTimeline(rows) {
       zoomKey: 'ctrlKey', zoomMin: 3 * 864e5, zoomMax: 800 * 864e5,
       // vis item editing is off on purpose: dragging anywhere then pans the view like a hand
       // tool, and the due date is moved by our own handle on the right edge instead
-      moveable: true, selectable: false, editable: false, orientation: { axis:'top' },
+      // item orientation MUST be 'top' too: with the default (bottom), vis anchors the view
+      // to the bottom edge and compensates every redraw with scrollTop += the change in
+      // content height. Each font load, resize or refresh nudged the chart further down until
+      // every row sat above the viewport and the panel showed nothing but white.
+      moveable: true, selectable: false, editable: false, orientation: { axis:'top', item:'top' },
       // the axis, the grid and the today line are all drawn on Bangkok days
       moment: d => vis.moment(d).utcOffset(TZ_OFF),
       margin: { item: { horizontal: 0, vertical: 2 }, axis: 4 },
