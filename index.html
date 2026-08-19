@@ -1826,6 +1826,10 @@ function paint(when) {
     + (truncated.length ? ' · card count is short on ' + truncated.join(', ') : '')
     + (capped.length ? ' · more releases exist behind ' + capped.join(', ') + ', press Older' : '')
   $('stamp').dataset.tip = 'updated ' + clock(when) + ' Bangkok (GMT+7)'
+    // which build of the PAGE this is, off the Last-Modified header GitHub Pages serves it
+    // with, so a stale cached copy can be recognised without guessing
+    + '<br>page from ' + new Date(document.lastModified).toLocaleString('en-GB',
+        { day:'numeric', month:'short', hour:'2-digit', minute:'2-digit', timeZone:TZ }) + ' Bangkok'
     + '<br>' + devs + ' devs &middot; ' + qas + ' QAs'
     + (rate ? '<br>API budget ' + rate.remaining + '/5000' : '')
     + (me ? '<br>signed in as @' + me : '')
