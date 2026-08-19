@@ -1128,7 +1128,19 @@ function drawTimeline(rows) {
     })
 
     $('tl').addEventListener('wheel', e => {
-      if (e.ctrlKey || e.metaKey) return                     // leave zoom to vis
+      if (e.ctrlKey || e.metaKey) {
+        // A trackpad pinch arrives as ctrl+wheel, one event a frame. vis turns each one
+        // straight into zoom, which overshoots before the fingers have finished moving, so the
+        // gesture is driven here instead: vis's own arithmetic, a third of the speed, still
+        // anchored on the day under the pointer.
+        e.preventDefault(); e.stopPropagation()
+        const delta = (e.wheelDelta ? e.wheelDelta / 120 : -e.deltaY / 3) / PINCH_SLOW
+        if (!delta) return
+        const scale = delta < 0 ? 1 - delta / 5 : 1 / (1 + delta / 5)
+        const t = timeline.getEventProperties(e).time
+        timeline.range.zoom(scale, t ? t.valueOf() : null)
+        return
+      }
       // sideways: a trackpad swipe or shift+wheel moves along the timeline
       const dx = Math.abs(e.deltaX) > Math.abs(e.deltaY) ? e.deltaX
                : e.shiftKey ? e.deltaY : 0
@@ -1267,6 +1279,8 @@ $('sprintClear').onclick = () => {
 // and the floor in futureWindow keeps at least a week on screen however far ahead the last
 // release is.
 const DEFAULT_ZOOM = Math.pow(1.4, 5)
+// how much slower a pinch zooms than vis does it on its own
+const PINCH_SLOW = 3
 // A week back, out to the last future release, optionally cut to `zoom` of that span.
 function futureWindow(rows, zoom) {
   const today = todayISO()
