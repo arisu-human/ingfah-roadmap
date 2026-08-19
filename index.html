@@ -116,8 +116,9 @@
   .vis-item.can-drag::after { content:''; position:absolute; right:0; top:0; bottom:0; width:7px;
               background:rgba(31,35,40,.5); border-left:1px solid #fff;
               border-radius:0 4px 4px 0; }
-  /* the whole chart is a hand tool, apart from the due date handle */
+  /* the whole chart is a hand tool, apart from the due date handle and the card blocks */
   .vis-panel.vis-center, .vis-panel.vis-center * { cursor:grab; }
+  .vis-panel.vis-center .blocks i, #table .cards i { cursor:pointer; }
   /* The sprint pane floats ON TOP of the bars, so it is a real overlay rather than a vis
      background item: those render behind everything and could not refract what they cover.
      Liquid glass = heavy blur + saturation lift, a mint body tint, a bright specular rim on
@@ -920,6 +921,8 @@ function whyStatus(c) {
   return c.offBoard ? '<br><i>not on the board, so it has no status</i>' : ''
 }
 
+const issueUrl = c => 'https://github.com/' + OWNER + '/' + c.repo + '/issues/' + c.number
+
 // what one card block says on hover: where it is, what it is called, who is on it.
 // Old cached rows predate the title and the assignees, so both lines vanish gracefully
 // until the next refresh.
@@ -931,6 +934,7 @@ function cardTip(c) {
         ? '<br>' + c.people.map(p => '<img src="' + esc(p.avatarUrl) + '&s=32"> '
             + esc(p.login)).join('<br>')
         : '')
+    + '<br><i>click to open the card</i>'
 }
 
 /* ---- timeline ---- */
@@ -968,6 +972,12 @@ function blocksEl(r, i) {
     b.style.background = grey ? '#dde2e7' : (STATUS_COLOR[c.status] || '#afb8c1')
     b.style.borderBottomColor = grey ? '#c6cdd5' : (TYPE_COLOR[c.type] || TYPE_COLOR['no type'])
     b.dataset.tip = cardTip(c)
+    // a click opens the card, but only a CLICK: the chart is also the pan surface, and a
+    // browser fires click after a drag too, so anything that moved is the hand tool's
+    b.onclick = e => {
+      if (Math.hypot(e.clientX - downAt.x, e.clientY - downAt.y) > 4) return
+      window.open(issueUrl(c), '_blank', 'noopener')
+    }
     wrap.appendChild(b)
   }
   return wrap
@@ -1037,7 +1047,7 @@ function shading(from, to) {
 
 const plus = (d, n) => { const x = new Date(d + 'T00:00:00Z'); x.setUTCDate(x.getUTCDate() + n)
                          return x.toISOString().slice(0,10) }
-let groups = null, firstDraw = true, shownCache = [], resize = null
+let groups = null, firstDraw = true, shownCache = [], resize = null, downAt = { x:0, y:0 }
 
 // dragging the due date handle: the bar follows the pointer, and letting go opens the confirm bar
 document.addEventListener('pointermove', e => {
@@ -1148,10 +1158,6 @@ function drawTimeline(rows) {
         lastSprintW = -1; placeSprint()
       })
     }
-    timeline.on('doubleClick', props => {             // the milestone name on the left is a link too
-      const it = props.item != null && items.get(props.item)
-      if (it && it.url) window.open(it.url, '_blank', 'noopener')
-    })
 
     // the last few pixels of a bar are the due date handle; everywhere else belongs to the hand tool
     const EDGE = 9
@@ -1167,6 +1173,7 @@ function drawTimeline(rows) {
     // in the capture phase. preventDefault is left out on purpose: it would kill the
     // pointermove events the drag needs.
     $('tl').addEventListener('pointerdown', e => {
+      downAt = { x:e.clientX, y:e.clientY }
       const hit = itemAt(e.target)
       if (!onEdge(hit, e.clientX)) { $('tl').classList.add('grabbing'); return }
       e.stopPropagation()                                 // hold the hand tool back
@@ -1665,7 +1672,8 @@ function cardBlocks(r, kinds, what) {
     : '<span class="cards" style="width:' + w + 'px">' + list.map(c => {
         const tip = '<b>' + head + '</b><br>' + cardTip(c)
         return '<i class="' + (c.type === 'no type' ? 'notype' : '') + '" style="background:'
-          + (TYPE_COLOR[c.type] || TYPE_COLOR['no type']) + '" data-tip="' + esc(tip) + '"></i>'
+          + (TYPE_COLOR[c.type] || TYPE_COLOR['no type']) + '" data-tip="' + esc(tip)
+          + '" data-issue="' + esc(issueUrl(c)) + '"></i>'
       }).join('') + '</span>'
   return '<span class="cellrow">' + repoPie(list, what) + bar + '</span>'
 }
@@ -1960,7 +1968,7 @@ $('help').dataset.tip = '<span class="keys">'
   + '<span class="key">dark right edge &middot; drag to move the due date</span>'
   + '<span class="key">wheel &middot; rows &middot; shift+wheel &middot; timeline</span>'
   + '<span class="key">ctrl/&#8984;+wheel &middot; zoom</span>'
-  + '<span class="key">double click a bar &middot; open the board</span>'
+  + '<span class="key">click a card block &middot; open the card on GitHub</span>'
   + '<span class="key">Sprint &middot; frost the current sprint over the chart</span>'
   + '<span class="key">This Sprint tick &middot; an unstarted release starts now and glows</span>'
   + '<span class="key">unticked &middot; it queues after the sprint ends</span>'
@@ -1995,6 +2003,12 @@ $('statusKey').innerHTML = BOARD.map(b =>
 
 $('ticksClear').onclick = askClearTicks
 paintTicks()
+
+// the card blocks are rebuilt on every draw, so the table listens once for all of them
+$('table').addEventListener('click', e => {
+  const b = e.target.closest && e.target.closest('[data-issue]')
+  if (b) window.open(b.dataset.issue, '_blank', 'noopener')
+})
 
 $('signin').onclick = signIn
 $('search').oninput = drawTable
