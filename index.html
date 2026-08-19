@@ -743,20 +743,19 @@ function build(all) {
     for (const i of row.issues) {
       const t = (i.issueType && i.issueType.name) || 'no type'
       types[t] = (types[t] || 0) + 1
-      // The board's own Status field, which is the thing being read on the board. The event
-      // trail underneath it only answers where a card has BEEN, so a card that was set once and
-      // never moved has no event at all and used to read as Backlog. The trail is still the
-      // fallback for a card that is not on the board.
+      // The Status field of the board is the answer, full stop. Whether the issue is open or
+      // closed on GitHub does not enter into it: closing an issue without moving its card is a
+      // board that is behind, not a card that is done, and the page has to show what the board
+      // shows. Only a card that is on no board at all falls back, first to the status trail,
+      // then to whether the issue is closed. Four of 721 cards are in that position today.
       const item = i.projectItems.nodes.find(n => n.project && n.project.number === BOARD_NUMBER)
       const board = item && item.fieldValueByName ? item.fieldValueByName.name : null
       const last = [...i.timelineItems.nodes].sort((a,b) => a.createdAt.localeCompare(b.createdAt)).pop()
-      // a closed issue is finished whatever the board still says; a card on no board at all has
-      // no status of its own, so it sits in Backlog
-      const now = i.state === 'CLOSED' ? STATUS_DONE : board || (last && last.status) || 'Backlog'
+      const now = board || (last && last.status) || (i.state === 'CLOSED' ? STATUS_DONE : 'Backlog')
       statuses[now] = (statuses[now] || 0) + 1
       cards.push({ repo:i.repo, number:i.number, type:t, status:now,
-        // the two ways the block can disagree with the board, said out loud in the tooltip
-        stale: i.state === 'CLOSED' && board && board !== STATUS_DONE ? board : null,
+        // worth knowing, but it changes nothing about which block is drawn
+        closedNote: !!(i.state === 'CLOSED' && board && board !== STATUS_DONE),
         offBoard: !item })
       for (const a of i.assignees.nodes) {
         const p = people.get(a.login) || { login:a.login, avatar:a.avatarUrl, n:0, qa:QA.has(a.login) }
@@ -885,12 +884,11 @@ function tickTip(r) {
        : 'Set a sprint to queue this after it'
 }
 
-// A block only ever shows one status, so where the block and the board differ it has to say
-// which one it is showing and why, or the board looks out of sync with no way to tell.
+// The block is the board column, always. These two lines say where a block came from when
+// that is not the whole story, without moving the block itself.
 function whyStatus(c) {
-  if (c.stale) return '<br><i>closed on GitHub, the board still says '
-    + esc(STATUS_SHORT[c.stale] || c.stale) + '</i>'
-  if (c.offBoard) return '<br><i>not on the board, so it counts as Backlog</i>'
+  if (c.offBoard) return '<br><i>on no board, so this comes from the issue itself</i>'
+  if (c.closedNote) return '<br><i>the issue is closed on GitHub, the board still has it here</i>'
   return ''
 }
 
