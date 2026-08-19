@@ -363,6 +363,7 @@
       <button id="sprintSave" class="primary">Set</button>
       <button id="sprintClear">Clear</button>
     </span>
+    <button id="ticksClear" title="Untick every release in This Sprint">Clear ticks</button>
     <span class="key" id="dateNow" style="font-weight:500;color:var(--ink)"></span>
     <span class="sep"></span>
     <button id="older" title="Load releases closed further back">Older</button>
@@ -778,7 +779,21 @@ function applyPlan(rows) {
     const gone = (new Date(today) - new Date(start)) / 864e5
     r.timePct = r.state === 'closed' ? 100 : pct(gone, span)
   }
+  paintTicks()
   return rows
+}
+
+// the ticks live in this browser, so the button is only ever offered when there are some
+function paintTicks() {
+  const b = $('ticksClear')
+  if (b) b.disabled = !thisSprint.size
+}
+
+function clearTicks() {
+  thisSprint.clear()
+  localStorage.removeItem('thisSprint')
+  applyPlan(rowsCache)
+  drawTable(); drawTimeline(rowsCache)
 }
 
 function toggleSprint(title) {
@@ -1219,6 +1234,20 @@ function askConfirm(r, newDue) {
   $('ask').classList.add('on')
 }
 
+// Same confirm bar as the due date drag, because this also throws work away, and it says
+// where the ticks live: nothing on GitHub moves.
+function askClearTicks() {
+  if (!thisSprint.size) return
+  renameTo = null; paintRename()
+  pending = { ticks:true }
+  const n = thisSprint.size
+  $('askText').innerHTML = 'Untick <b>' + n + ' release' + (n > 1 ? 's' : '') + '</b> from This Sprint?'
+  $('askRepos').textContent = 'only this browser, nothing on GitHub changes'
+  $('askGo').disabled = false
+  $('askGo').textContent = 'Confirm'
+  $('ask').classList.add('on')
+}
+
 function cancelAsk(redraw) {
   pending = null
   $('ask').classList.remove('on')
@@ -1265,6 +1294,7 @@ async function setDue(ref, due, title) {
 $('askNo').onclick = () => cancelAsk(true)
 $('askGo').onclick = async () => {
   if (!pending) return
+  if (pending.ticks) { cancelAsk(); clearTicks(); return }
   const { due, targets, titleBefore } = pending
   const title = renameOn ? renameTo : null
   const finalTitle = title || titleBefore
@@ -1683,6 +1713,9 @@ paintHide()
 
 $('statusKey').innerHTML = BOARD.map(b =>
   '<span class="key"><i style="background:' + b.c + '"></i>' + b.short + '</span>').join('')
+
+$('ticksClear').onclick = askClearTicks
+paintTicks()
 
 $('signin').onclick = signIn
 $('search').oninput = drawTable
