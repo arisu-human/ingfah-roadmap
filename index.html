@@ -480,7 +480,7 @@ const MS_FIELDS = `
   issues(first:$iss){
     totalCount
     nodes{
-      number state
+      number
       issueType{ name }
       assignees(first:5){ nodes{ login avatarUrl } }
       projectItems(first:5){ nodes{ project{ number }
@@ -744,19 +744,15 @@ function build(all) {
       const t = (i.issueType && i.issueType.name) || 'no type'
       types[t] = (types[t] || 0) + 1
       // The Status field of the board is the answer, full stop. Whether the issue is open or
-      // closed on GitHub does not enter into it: closing an issue without moving its card is a
-      // board that is behind, not a card that is done, and the page has to show what the board
-      // shows. Only a card that is on no board at all falls back, first to the status trail,
-      // then to whether the issue is closed. Four of 721 cards are in that position today.
+      // closed on GitHub is not a status and is not read anywhere on this page. A card on no
+      // board at all has only its status trail to go on, and nothing at all if it has never
+      // been moved: 4 of 721 cards are in that position today.
       const item = i.projectItems.nodes.find(n => n.project && n.project.number === BOARD_NUMBER)
       const board = item && item.fieldValueByName ? item.fieldValueByName.name : null
       const last = [...i.timelineItems.nodes].sort((a,b) => a.createdAt.localeCompare(b.createdAt)).pop()
-      const now = board || (last && last.status) || (i.state === 'CLOSED' ? STATUS_DONE : 'Backlog')
+      const now = board || (last && last.status) || 'Backlog'
       statuses[now] = (statuses[now] || 0) + 1
-      cards.push({ repo:i.repo, number:i.number, type:t, status:now,
-        // worth knowing, but it changes nothing about which block is drawn
-        closedNote: !!(i.state === 'CLOSED' && board && board !== STATUS_DONE),
-        offBoard: !item })
+      cards.push({ repo:i.repo, number:i.number, type:t, status:now, offBoard: !item })
       for (const a of i.assignees.nodes) {
         const p = people.get(a.login) || { login:a.login, avatar:a.avatarUrl, n:0, qa:QA.has(a.login) }
         p.n++; people.set(a.login, p)
@@ -884,12 +880,10 @@ function tickTip(r) {
        : 'Set a sprint to queue this after it'
 }
 
-// The block is the board column, always. These two lines say where a block came from when
-// that is not the whole story, without moving the block itself.
+// The block is the board column, always. The only thing left to say is when there is no
+// column to read, because the card was never put on the board.
 function whyStatus(c) {
-  if (c.offBoard) return '<br><i>on no board, so this comes from the issue itself</i>'
-  if (c.closedNote) return '<br><i>the issue is closed on GitHub, the board still has it here</i>'
-  return ''
+  return c.offBoard ? '<br><i>not on the board, so it has no status</i>' : ''
 }
 
 /* ---- timeline ---- */
