@@ -1195,7 +1195,14 @@ function drawTimeline(rows) {
     groups.clear(); groups.add(groupData)
   }
   // open on the whole road ahead: a week before today, out to the last future release
-  if (firstDraw) { firstDraw = false; showFuture(shown, DEFAULT_ZOOM) }
+  if (firstDraw) {
+    firstDraw = false
+    showFuture(shown, DEFAULT_ZOOM)
+    // and at the top row. Belt and braces after the bottom-anchor bug: whatever state the
+    // vertical scroll is in after the first build, the first thing shown is the first release.
+    const box = timeline.dom.left.parentNode
+    if (box) box.scrollTop = 0
+  }
   tuneAxis(); placeSprint()
   $('older').title = 'Showing releases closed in the last ' + windowDays + ' days. Load further back.'
 }
