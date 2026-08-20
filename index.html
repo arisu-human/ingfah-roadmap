@@ -93,6 +93,12 @@
      costs the ticked rows none of their own colour. The weekend and holiday bands keep their
      weight, or the calendar you are counting days against would fade out with the bars. */
   #tl.sprint-focus .vis-item:not(.vis-background):not(.in-sprint) { opacity:.4; }
+  /* search: hits ring in violet, everything else steps back the way the sprint fade does.
+     Violet sits outside every status and type colour, so a ring can only mean a search hit. */
+  #tl.search-focus .vis-item:not(.vis-background):not(.has-hit) { opacity:.25; }
+  .blocks.hashit i:not(.hit), .cards.hashit i:not(.hit) { opacity:.3; }
+  .blocks i.hit, .cards i.hit { outline:2px solid #8250df; outline-offset:-1px;
+            position:relative; z-index:1; }
   .tick { cursor:pointer; user-select:none; font-size:15px; line-height:1; color:var(--soft-muted);
           padding:2px 4px; border-radius:6px; display:inline-block; }
   .tick:hover { color:var(--ink); background:var(--surface-soft); }
@@ -425,7 +431,7 @@
 
 <div class="card">
   <div class="toolrow">
-    <input id="search" type="search" placeholder="Search milestone..." style="width:280px">
+    <input id="search" type="search" placeholder="Search milestone or card..." style="width:280px">
     <span class="muted" id="searchCount"></span>
     <button id="hideClosed"></button>
     <button id="full"></button>
@@ -928,6 +934,14 @@ function whyStatus(c) {
 
 const issueUrl = c => 'https://github.com/' + OWNER + '/' + c.repo + '/issues/' + c.number
 
+/* ---- search: milestone names and card titles, one box for the table and the chart ---- */
+// Card BODIES are not searched: they are never fetched. 700 card bodies in the house format
+// would put megabytes on every refresh and blow the row cache out of localStorage.
+let searchQ = ''
+const matchCard = c => !!searchQ && (c.title || '').toLowerCase().includes(searchQ)
+const rowMatch = r => !searchQ
+  || r.name.toLowerCase().includes(searchQ) || r.cards.some(matchCard)
+
 // what one card block says on hover: where it is, what it is called, who is on it.
 // Old cached rows predate the title and the assignees, so both lines vanish gracefully
 // until the next refresh.
@@ -971,12 +985,12 @@ const elem = (tag, cls) => { const e = document.createElement(tag); if (cls) e.c
 
 // one equal block per card: fill is how far the card has moved, the stripe underneath is its type
 function blocksEl(r, i) {
-  const wrap = elem('span', 'blocks')
+  const wrap = elem('span', 'blocks' + (searchQ && r.cards.some(matchCard) ? ' hashit' : ''))
   wrap.dataset.id = i
   wrap.dataset.tip = itemTooltip(r)
   const grey = r.state === 'closed'
   for (const c of r.cards) {
-    const b = elem('i', c.type === 'no type' ? 'notype' : '')
+    const b = elem('i', (c.type === 'no type' ? 'notype' : '') + (matchCard(c) ? ' hit' : ''))
     b.style.background = grey ? '#dde2e7' : (STATUS_COLOR[c.status] || '#afb8c1')
     b.style.borderBottomColor = grey ? '#c6cdd5' : (TYPE_COLOR[c.type] || TYPE_COLOR['no type'])
     b.dataset.tip = cardTip(c)
@@ -1091,7 +1105,9 @@ function drawTimeline(rows) {
   if (shown.some(r => r.inSprint)) shown.sort((a, b) => band(a) - band(b))
   shownCache = shown
   if (!shown.length) { $('tl').textContent = 'Nothing to show.'; return }
-  $('tl').classList.toggle('sprint-focus', shown.some(r => r.inSprint))
+  // while a search is typed the search is the focus, not the sprint
+  $('tl').classList.toggle('sprint-focus', !searchQ && shown.some(r => r.inSprint))
+  $('tl').classList.toggle('search-focus', !!searchQ)
   const lo = shown.reduce((m, r) => r.barStart < m ? r.barStart : m, shown[0].barStart)
   const hi = shown.reduce((m, r) => r.barEnd > m ? r.barEnd : m, shown[0].barEnd)
 
@@ -1110,7 +1126,8 @@ function drawTimeline(rows) {
     // has always used, and a one day release is one column wide instead of nothing.
     end: bkk(plus(r.barEnd, 1)),
     className: 'st-' + r.state + (r.state === 'closed' ? '' : ' can-drag')
-      + (r.inSprint ? ' in-sprint' : '') + (r.planned ? ' planned' : ''),
+      + (r.inSprint ? ' in-sprint' : '') + (r.planned ? ' planned' : '')
+      + (searchQ && rowMatch(r) ? ' has-hit' : ''),
     url: PROJECT_SLICE + encodeURIComponent(r.title)
   })).concat(shading(lo, plus(hi, 14)))   // background bands carry no group, so they span every row
 
@@ -1692,10 +1709,12 @@ function cardBlocks(r, kinds, what) {
   const counts = {}
   for (const c of list) counts[c.type] = (counts[c.type] || 0) + 1
   const head = Object.entries(counts).map(([t, n]) => n + ' ' + esc(t)).join(' &middot; ')
+  const hashit = searchQ && list.some(matchCard)
   const bar = !list.length ? '<span class="cards none" style="width:' + w + 'px"></span>'
-    : '<span class="cards" style="width:' + w + 'px">' + list.map(c => {
+    : '<span class="cards' + (hashit ? ' hashit' : '') + '" style="width:' + w + 'px">' + list.map(c => {
         const tip = '<b>' + head + '</b><br>' + cardTip(c)
-        return '<i class="' + (c.type === 'no type' ? 'notype' : '') + '" style="background:'
+        return '<i class="' + (c.type === 'no type' ? 'notype' : '') + (matchCard(c) ? ' hit' : '')
+          + '" style="background:'
           + (TYPE_COLOR[c.type] || TYPE_COLOR['no type']) + '" data-tip="' + esc(tip)
           + '" data-issue="' + esc(issueUrl(c)) + '"></i>'
       }).join('') + '</span>'
@@ -1774,10 +1793,13 @@ let hideClosed = localStorage.getItem('hideClosed') === '1'
 
 function drawTable() {
   const col = COLS.find(c => c.k === sortKey) || COLS[0]
-  const q = ($('search').value || '').trim().toLowerCase()
+  const q = searchQ
   const base = rowsCache.filter(inWindow).filter(r => !hideClosed || r.state !== 'closed')
-  const kept = base.filter(r => !q || r.name.toLowerCase().includes(q))
-  $('searchCount').textContent = q ? kept.length + ' of ' + base.length : ''
+  const kept = base.filter(rowMatch)
+  const hits = q ? kept.reduce((n, r) => n + r.cards.filter(matchCard).length, 0) : 0
+  $('searchCount').textContent = q
+    ? kept.length + ' of ' + base.length + (hits ? ' · ' + hits + ' card' + (hits > 1 ? 's' : '') : '')
+    : ''
   const sorted = kept.sort((a, b) => {
     const x = col.val(a), y = col.val(b)
     return (x < y ? -1 : x > y ? 1 : 0) * sortDir
@@ -2035,7 +2057,14 @@ $('table').addEventListener('click', e => {
 })
 
 $('signin').onclick = signIn
-$('search').oninput = drawTable
+// the table repaints on every keystroke; the chart is heavier, so it follows 150ms behind
+let searchTimer = null
+$('search').oninput = () => {
+  searchQ = ($('search').value || '').trim().toLowerCase()
+  drawTable()
+  clearTimeout(searchTimer)
+  searchTimer = setTimeout(() => drawTimeline(rowsCache), 150)
+}
 $('refresh').onclick = async () => {
   const b = $('refresh')
   b.disabled = true
