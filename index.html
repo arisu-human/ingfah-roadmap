@@ -518,7 +518,7 @@ const MS_FIELDS = `
   issues(first:$iss){
     totalCount
     nodes{
-      number title
+      number title stateReason
       issueType{ name }
       assignees(first:5){ nodes{ login avatarUrl } }
       projectItems(first:5){ nodes{ project{ number }
@@ -752,9 +752,12 @@ function build(all) {
     if (!m.isClosed) row.closed = false        // open anywhere means the release is still open
     // every repo copy of this title, so one drag can move them all together
     row.refs.push({ repo:m.repo, number:m.number, dueOn:m.dueOn, closed:m.isClosed })
-    // an Epic is a container, not a card: it would add a phantom release with no real work
+    // an Epic is a container, not a card: it would add a phantom release with no real work.
+    // A card closed as not planned or as a duplicate was decided against, not delivered, so it
+    // is no part of the release: not a block, not in the counts. Ordinary closed cards stay.
     row.issues.push(...m.issues.nodes
       .filter(i => !i.issueType || i.issueType.name !== 'Epic')
+      .filter(i => i.stateReason !== 'NOT_PLANNED' && i.stateReason !== 'DUPLICATE')
       .map(i => ({ ...i, repo: m.repo })))
   }
 
