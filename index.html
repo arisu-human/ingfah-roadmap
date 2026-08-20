@@ -1401,11 +1401,11 @@ $('sprintClear').onclick = () => {
   $('sprintBox').hidden = true
 }
 
-// The zoom buttons step by 0.4, and vis divides the window by 1 + that, so five clicks in is
-// 1.4^5. The window is cut from the far end only, so today stays where the Fit view puts it,
+// The zoom buttons step by 0.4, and vis divides the window by 1 + that, so four clicks in is
+// 1.4^4. The window is cut from the far end only, so today stays where the Fit view puts it,
 // and the floor in futureWindow keeps at least a week on screen however far ahead the last
 // release is.
-const DEFAULT_ZOOM = Math.pow(1.4, 5)
+const DEFAULT_ZOOM = Math.pow(1.4, 4)
 // how much slower a pinch zooms than vis does it on its own
 const PINCH_SLOW = 6
 // A week back, out to the last future release, optionally cut to `zoom` of that span.
