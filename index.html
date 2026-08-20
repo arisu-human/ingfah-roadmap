@@ -53,6 +53,8 @@
   .pill.slipped  { background:#fff1e5; color:#bc4c00; }
   .pill.upcoming { background:#fff8c5; color:#7d4e00; }
   .pill.closed   { background:#eaeef2; color:#57606a; }
+  /* the tooltip's status pill: a line and its colour, tighter than the state pills */
+  .pill.outline { background:none; border:1px solid; padding:0 6px; font-size:10px; }
   .key { display:inline-flex; align-items:center; gap:6px; font-size:12px; color:var(--muted);
          white-space:nowrap; }
   .key i { width:11px; height:11px; border-radius:3px; display:block; flex:0 0 auto; }
@@ -947,9 +949,10 @@ const rowMatch = r => !searchQ
 // until the next refresh.
 function cardTip(c) {
   return '<b>' + esc(REPO_SHORT[c.repo] || c.repo) + ' #' + c.number + '</b> &middot; ' + esc(c.type)
-    // the status as the same pill the board colours use, on the headline where it is read first
-    + ' <span class="pill" style="background:' + (STATUS_COLOR[c.status] || '#afb8c1')
-    + ';color:#1f2328">' + esc(STATUS_SHORT[c.status] || c.status) + '</span>'
+    // the status as an outline pill in the board's colour, on the headline where it is read
+    + ' <span class="pill outline" style="border-color:' + (STATUS_COLOR[c.status] || '#afb8c1')
+    + ';color:' + (STATUS_COLOR[c.status] || '#afb8c1') + '">'
+    + esc(STATUS_SHORT[c.status] || c.status) + '</span>'
     + (c.title ? '<br>' + esc(c.title) : '')
     + whyStatus(c)
     + (c.people && c.people.length
