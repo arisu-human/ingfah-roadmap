@@ -933,8 +933,11 @@ const issueUrl = c => 'https://github.com/' + OWNER + '/' + c.repo + '/issues/' 
 // until the next refresh.
 function cardTip(c) {
   return '<b>' + esc(REPO_SHORT[c.repo] || c.repo) + ' #' + c.number + '</b> &middot; ' + esc(c.type)
+    // the status as the same pill the board colours use, on the headline where it is read first
+    + ' <span class="pill" style="background:' + (STATUS_COLOR[c.status] || '#afb8c1')
+    + ';color:#1f2328">' + esc(STATUS_SHORT[c.status] || c.status) + '</span>'
     + (c.title ? '<br>' + esc(c.title) : '')
-    + '<br>' + esc(STATUS_SHORT[c.status] || c.status) + whyStatus(c)
+    + whyStatus(c)
     + (c.people && c.people.length
         ? '<br>' + c.people.map(p => '<img src="' + esc(p.avatarUrl) + '&s=32"> '
             + esc(p.login)).join('<br>')
