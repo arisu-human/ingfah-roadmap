@@ -198,6 +198,29 @@
 
   /* ---- table ---- */
   .toolrow { display:flex; align-items:center; flex-wrap:wrap; gap:10px 14px; margin-bottom:14px; }
+  /* notes: a pre-plan pile. Deliberately plainer than the chart, it is a scratchpad. */
+  .noteNew textarea { width:100%; font:inherit; color:var(--ink); padding:8px 12px; resize:vertical;
+            border:1px solid var(--hairline); border-radius:6px; background:var(--canvas); }
+  .noteNew textarea:focus { outline:2px solid var(--focus); outline-offset:-1px; }
+  .noteFields { display:flex; align-items:center; flex-wrap:wrap; gap:8px; margin:8px 0 4px; }
+  .noteFields select { font:inherit; font-size:12px; color:var(--ink); padding:5px 8px;
+            border:1px solid var(--hairline); border-radius:6px; background:var(--canvas); }
+  .note { display:flex; gap:10px; align-items:flex-start; padding:10px 0;
+          border-top:1px solid var(--hairline); }
+  .note .body { flex:1 1 auto; min-width:0; }
+  .note .title { color:var(--ink); font-weight:500; word-break:break-word; }
+  .note .rest { color:var(--muted); font-size:12px; white-space:pre-wrap; word-break:break-word;
+          margin-top:2px; }
+  .note .meta { display:flex; align-items:center; flex-wrap:wrap; gap:6px; margin-top:6px; }
+  .note .chip { font-size:11px; padding:1px 8px; }
+  .note .acts { flex:0 0 auto; display:flex; gap:2px; }
+  .note .acts span { cursor:pointer; color:var(--soft-muted); padding:3px 5px; border-radius:6px;
+          font-size:13px; user-select:none; }
+  .note .acts span:hover { color:var(--ink); background:var(--surface-soft); }
+  .note.done .title, .note.done .rest { text-decoration:line-through; color:var(--soft-muted); }
+  /* how many notes are waiting on a release, in the table and in the chart's name column */
+  .notebadge { flex:0 0 auto; font-size:10px; color:#006b60; background:rgba(0,187,167,.14);
+          border-radius:9999px; padding:1px 6px; cursor:pointer; }
   #tableBox { max-height:calc(100vh - 180px); overflow:auto; }
   table { border-collapse:collapse; width:100%; font-size:13px; }
   th, td { text-align:left; padding:5px 10px; border-bottom:1px solid var(--line); white-space:nowrap;
@@ -432,6 +455,26 @@
     <span class="muted" id="askRepos"></span>
   </div>
   <div id="tl"></div>
+</div>
+
+<div class="card" id="notes">
+  <div class="toolrow">
+    <b>Notes</b>
+    <span class="muted" id="noteCount"></span>
+    <span class="sep"></span>
+    <span class="muted" id="noteSync"></span>
+  </div>
+  <div class="noteNew">
+    <textarea id="noteText" rows="2"
+      placeholder="An idea, a requirement, a thing to remember. First line is the title."></textarea>
+    <div class="noteFields">
+      <select id="noteType"></select>
+      <select id="noteRepo"></select>
+      <select id="noteMs"></select>
+      <button id="noteAdd" class="primary">Add note</button>
+    </div>
+  </div>
+  <div id="noteList"></div>
 </div>
 
 <div class="card">
@@ -1043,6 +1086,14 @@ function labelEl(r) {
   name.dataset.tip = esc(r.name) + '<br><i>click to copy the milestone name</i>'
   name.style.cursor = 'pointer'
   name.onclick = e => { e.stopPropagation(); copyTitle(r.title) }
+  const waiting = liveNotes().filter(n => !n.done && n.ms === r.title).length
+  if (waiting) {
+    const b = elem('span', 'notebadge')
+    b.textContent = '📝 ' + waiting
+    b.dataset.tip = waiting + ' note' + (waiting > 1 ? 's' : '') + ' waiting on this release'
+    b.onclick = e => { e.stopPropagation(); $('notes').scrollIntoView({ behavior:'smooth', block:'center' }) }
+    wrap.appendChild(b)
+  }
   const pill = elem('span', 'pill ' + r.state)
   pill.textContent = STATE_LABEL[r.state]
   pill.dataset.tip = stateWhy(r)
@@ -1459,6 +1510,221 @@ function showFuture(shown, zoom) {
   if (!timeline || !rows.length) return
   const w = futureWindow(rows, zoom)
   timeline.setWindow(w.start, w.end, { animation:false })
+}
+
+/* ---- notes: the pile before the plan ----------------------------------------------
+   A note is what a card is before anyone has decided it is work: an idea, a requirement
+   somebody said out loud, a thing not to forget. Writing one costs a sentence.
+
+   They live in this browser first, so typing never waits for the network, and are pushed to
+   one GitHub issue a couple of seconds later so a cleared cache, a second laptop or a phone
+   sees the same pile. Two writers are reconciled per note by updatedAt, and a deleted note
+   leaves a tombstone, or a stale tab would resurrect it on its next push. */
+const NOTES_REPO = 'zai-backend'
+const NOTES_TITLE = '📝 Release Planner notes'
+const NOTES_MARK = '<!-- release-planner-notes v1 -->'
+const NOTE_TYPES = ['no type', 'Story', 'Task', 'Bug', 'Defect', 'Epic']
+
+let notes = []
+try { notes = JSON.parse(localStorage.getItem('plannerNotes') || '[]') } catch (e) { notes = [] }
+let notesIssue = null                    // the issue number the pile is stored in
+let notesPush = null, notesBusy = false, notesDirty = false
+
+const noteId = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 7)
+const liveNotes = () => notes.filter(n => !n.deleted)
+const noteTitle = n => (n.text || '').split('\n')[0].trim()
+const noteRest = n => (n.text || '').split('\n').slice(1).join('\n').trim()
+
+// newest wins per note, and a tombstone beats an edit of the same age
+function mergeNotes(mine, theirs) {
+  const by = new Map()
+  for (const n of [...theirs, ...mine]) {
+    const had = by.get(n.id)
+    if (!had || (n.updatedAt || 0) > (had.updatedAt || 0)
+        || ((n.updatedAt || 0) === (had.updatedAt || 0) && n.deleted)) by.set(n.id, n)
+  }
+  // a tombstone is only worth keeping while a stale tab could still be holding the note
+  const cutoff = Date.now() - 30 * 864e5
+  return [...by.values()].filter(n => !n.deleted || (n.updatedAt || 0) > cutoff)
+                         .sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0))
+}
+
+function saveNotes(push = true) {
+  localStorage.setItem('plannerNotes', JSON.stringify(notes))
+  drawNotes()
+  drawTable()
+  if (timeline) drawTimeline(rowsCache)
+  if (!push) return
+  notesDirty = true
+  clearTimeout(notesPush)
+  notesPush = setTimeout(syncNotes, 2000)          // typing must never wait on GitHub
+}
+
+function noteSyncSays(text, bad) {
+  const el = $('noteSync')
+  el.textContent = text
+  el.className = bad ? 'err' : 'muted'
+}
+
+// the issue that holds the pile, found by title so any browser can pick it up, made on demand
+async function notesIssueNumber() {
+  if (notesIssue) return notesIssue
+  const q = 'repo:' + OWNER + '/' + NOTES_REPO + ' in:title "' + NOTES_TITLE + '"'
+  const res = await fetch('https://api.github.com/search/issues?q=' + encodeURIComponent(q),
+    { cache:'no-store', headers:{ 'Authorization':'Bearer ' + token(),
+                                  'Accept':'application/vnd.github+json' } })
+  const j = await res.json().catch(() => ({}))
+  if (!res.ok) throw new Error('looking for the notes issue: HTTP ' + res.status
+    + (j.message ? ' ' + j.message : ''))
+  const hit = (j.items || []).find(i => i.title === NOTES_TITLE)
+  if (hit) return (notesIssue = hit.number)
+  const made = await fetch('https://api.github.com/repos/' + OWNER + '/' + NOTES_REPO + '/issues', {
+    method:'POST',
+    headers:{ 'Authorization':'Bearer ' + token(), 'Accept':'application/vnd.github+json',
+              'Content-Type':'application/json' },
+    body: JSON.stringify({ title: NOTES_TITLE, body: notesBody([]) })
+  })
+  const mj = await made.json().catch(() => ({}))
+  if (!made.ok) throw new Error('making the notes issue: HTTP ' + made.status
+    + (mj.message ? ' ' + mj.message : ''))
+  return (notesIssue = mj.number)
+}
+
+// the issue body: readable for anyone who opens it, with the data in a fenced block
+function notesBody(list) {
+  const live = list.filter(n => !n.deleted)
+  return NOTES_MARK + '\n\n**Pre-plan notes from the Release Planner.** Edited by the page, not '
+    + 'by hand: anything typed here is overwritten on the next sync.\n\n'
+    + (live.length ? live.map(n => '- ' + (n.ms ? '**[' + cleanTitle(n.ms) + ']** ' : '')
+        + noteTitle(n) + (n.done ? ' _(done)_' : '')).join('\n') : '_No notes._')
+    + '\n\n```json\n' + JSON.stringify(list, null, 1) + '\n```\n'
+}
+
+const notesFromBody = body => {
+  const m = (body || '').match(/```json\n([\s\S]*?)\n```/)
+  if (!m) return []
+  try { return JSON.parse(m[1]) } catch (e) { return [] }
+}
+
+async function syncNotes(quiet) {
+  if (!token() || notesBusy) return
+  notesBusy = true
+  try {
+    noteSyncSays('syncing...')
+    const num = await notesIssueNumber()
+    const url = 'https://api.github.com/repos/' + OWNER + '/' + NOTES_REPO + '/issues/' + num
+    const res = await fetch(url, { cache:'no-store',
+      headers:{ 'Authorization':'Bearer ' + token(), 'Accept':'application/vnd.github+json' } })
+    const j = await res.json().catch(() => ({}))
+    if (!res.ok) throw new Error('reading the notes issue: HTTP ' + res.status)
+    const merged = mergeNotes(notes, notesFromBody(j.body))
+    const changed = JSON.stringify(merged) !== JSON.stringify(notesFromBody(j.body))
+    notes = merged
+    localStorage.setItem('plannerNotes', JSON.stringify(notes))
+    drawNotes()
+    if (changed && (notesDirty || true)) {
+      const w = await fetch(url, {
+        method:'PATCH',
+        headers:{ 'Authorization':'Bearer ' + token(), 'Accept':'application/vnd.github+json',
+                  'Content-Type':'application/json' },
+        body: JSON.stringify({ body: notesBody(notes) })
+      })
+      if (!w.ok) throw new Error('saving the notes issue: HTTP ' + w.status)
+    }
+    notesDirty = false
+    noteSyncSays('saved to ' + NOTES_REPO + ' #' + num)
+  } catch (e) {
+    noteSyncSays(e.message + ' · kept in this browser', true)
+    if (!quiet) toast('Notes: ' + e.message, 'err')
+  } finally { notesBusy = false }
+}
+
+// the new-note row: type, repo and release are all optional, because a note that needs three
+// decisions before it can be written is a card, and cards are what this is not
+function fillNoteFields() {
+  const keep = { t:$('noteType').value, r:$('noteRepo').value, m:$('noteMs').value }
+  $('noteType').innerHTML = NOTE_TYPES.map(t =>
+    '<option value="' + (t === 'no type' ? '' : t) + '">' + t + '</option>').join('')
+  $('noteRepo').innerHTML = '<option value="">no repo</option>'
+    + REPOS.map(r => '<option value="' + r + '">' + (REPO_SHORT[r] || r) + '</option>').join('')
+  const open = rowsCache.filter(r => r.state !== 'closed')
+    .sort((a, b) => a.due.localeCompare(b.due))
+  $('noteMs').innerHTML = '<option value="">unplanned</option>'
+    + open.map(r => '<option value="' + esc(r.title) + '">' + esc(r.name) + '</option>').join('')
+  $('noteType').value = keep.t; $('noteRepo').value = keep.r; $('noteMs').value = keep.m
+}
+
+// GitHub's new-issue form takes title, body and milestone in the query string, so a note
+// arrives as a first draft with the thinking already in it, and the house format pass happens
+// on the card itself
+function noteToCardUrl(n) {
+  const repo = n.repo || NOTES_REPO
+  const p = new URLSearchParams({ title: noteTitle(n) })
+  const body = noteRest(n)
+  if (body) p.set('body', body)
+  if (n.ms) p.set('milestone', n.ms)
+  return 'https://github.com/' + OWNER + '/' + repo + '/issues/new?' + p
+}
+
+function drawNotes() {
+  const live = liveNotes()
+  const open = live.filter(n => !n.done).length
+  $('noteCount').textContent = live.length
+    ? open + ' open' + (live.length > open ? ' · ' + (live.length - open) + ' done' : '') : ''
+  const box = $('noteList')
+  box.textContent = ''
+  for (const n of live) {
+    const el = elem('div', 'note' + (n.done ? ' done' : ''))
+    const body = elem('div', 'body')
+    const t = elem('div', 'title'); t.textContent = noteTitle(n) || '(empty note)'
+    body.appendChild(t)
+    if (noteRest(n)) { const r = elem('div', 'rest'); r.textContent = noteRest(n); body.appendChild(r) }
+    const meta = elem('div', 'meta')
+    const chip = (text, cls) => { const c = elem('span', 'chip ' + (cls || '')); c.textContent = text
+                                  meta.appendChild(c) }
+    if (n.type) chip(n.type)
+    if (n.repo) chip(REPO_SHORT[n.repo] || n.repo)
+    chip(n.ms ? cleanTitle(n.ms) : 'unplanned', n.ms ? 'pill upcoming' : '')
+    const when = elem('span', 'chip'); when.textContent = pretty(dayOf(n.createdAt || Date.now()))
+    meta.appendChild(when)
+    body.appendChild(meta)
+
+    const acts = elem('div', 'acts')
+    const act = (glyph, tip, fn) => {
+      const a = elem('span'); a.textContent = glyph; a.dataset.tip = tip; a.onclick = fn
+      acts.appendChild(a)
+    }
+    act(n.done ? '↺' : '☑', n.done ? 'Put it back on the pile' : 'Mark it handled',
+      () => { n.done = !n.done; n.updatedAt = Date.now(); saveNotes() })
+    act('↗', 'Open a new GitHub issue with this note in it',
+      () => window.open(noteToCardUrl(n), '_blank', 'noopener'))
+    act('✎', 'Edit this note', () => {
+      const text = prompt('Note', n.text)
+      if (text == null) return
+      n.text = text; n.updatedAt = Date.now(); saveNotes()
+    })
+    act('🗑', 'Delete this note', () => {
+      if (!confirm('Delete this note?\n\n' + noteTitle(n))) return
+      n.deleted = true; n.text = ''; n.updatedAt = Date.now(); saveNotes()
+    })
+    el.append(body, acts)
+    box.appendChild(el)
+  }
+  if (!live.length) {
+    const p = elem('p', 'muted')
+    p.textContent = 'Nothing yet. Anything you would otherwise forget by tomorrow goes here.'
+    box.appendChild(p)
+  }
+}
+
+function addNote() {
+  const text = $('noteText').value.trim()
+  if (!text) return $('noteText').focus()
+  notes.unshift({ id: noteId(), text, type: $('noteType').value || '', repo: $('noteRepo').value || '',
+                  ms: $('noteMs').value || '', done:false, createdAt: Date.now(), updatedAt: Date.now() })
+  $('noteText').value = ''
+  $('noteMs').value = ''          // a release pinned to one note must not stick to the next
+  saveNotes()
 }
 
 /* ---- toast ---- */
@@ -1886,7 +2152,12 @@ const COLS = [
       + esc(tickTip(r)) + '">'
       + (r.inSprint ? '☑' : '☐') + '</span>',
     val:r => r.state === 'closed' ? 2 : r.inSprint ? 0 : 1 },
-  { k:'name',  h:'Milestone', cell:r => '<span class="rel copy-name" data-t="' + esc(r.title)
+  { k:'name',  h:'Milestone', cell:r => (() => {
+      const waiting = liveNotes().filter(n => !n.done && n.ms === r.title).length
+      return waiting ? '<span class="notebadge" data-tip="' + waiting + ' note'
+        + (waiting > 1 ? 's' : '') + ' waiting on this release">📝 ' + waiting + '</span> ' : ''
+    })()
+      + '<span class="rel copy-name" data-t="' + esc(r.title)
       + '" data-tip="Click to copy the milestone name">' + esc(r.name) + '</span>'
       + (r.state === 'closed' ? ''
           : '<span class="gopen gclose" data-t="' + esc(r.title)
@@ -2041,6 +2312,7 @@ function readCache() {
 function paint(when) {
   $('table').removeAttribute('aria-busy')
   applyPlan(rowsCache)          // planned starts depend on the sprint, not on the fetch
+  fillNoteFields()              // the release picker can only list releases once they are built
   drawTable()
   // The chart is the half that can fail on its own: it is the only part with a library under
   // it. A throw in here used to leave an empty white box and take the rest of the paint with
@@ -2093,6 +2365,7 @@ async function load(force) {
   if (!force && cached && cached.closedMs >= closedMs && Date.now() - cached.at < REFRESH_MS) {
     rowsCache = cached.rows
     paint(cached.at)
+    syncNotes(true)
     return
   }
   if (loading) return
@@ -2106,6 +2379,7 @@ async function load(force) {
     rowsCache = build(all)
     saveCache()
     paint(Date.now())
+    syncNotes(true)
   } catch (e) {
     if (cached) {                              // keep the old picture rather than an empty page
       rowsCache = cached.rows
@@ -2177,6 +2451,14 @@ $('table').addEventListener('click', e => {
   const b = e.target.closest && e.target.closest('[data-issue]')
   if (b) window.open(b.dataset.issue, '_blank', 'noopener')
 })
+
+$('noteAdd').onclick = addNote
+// ctrl/cmd+enter adds, so a note never needs the mouse
+$('noteText').onkeydown = e => {
+  if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); addNote() }
+}
+fillNoteFields()
+drawNotes()
 
 $('signin').onclick = signIn
 // the table repaints on every keystroke; the chart is heavier, so it follows 150ms behind
