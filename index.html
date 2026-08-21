@@ -1034,7 +1034,7 @@ function tickEl(r) {
   return t
 }
 
-// [tick] {name} [state] (done/total) [open in a new tab]
+// [tick] {name} [state] (done/total) [open in a new tab] [close the release]
 function labelEl(r) {
   const wrap = elem('span', 'glab')
   const name = elem('span', 'gname')
@@ -1054,6 +1054,13 @@ function labelEl(r) {
   open.title = 'Open the board filtered to this milestone'
   open.textContent = '↗'
   wrap.append(tickEl(r), name, pill, cnt, open)
+  if (r.state !== 'closed') {
+    const flag = elem('span', 'gopen gclose')
+    flag.textContent = '🏁'
+    flag.dataset.tip = 'Close this release on GitHub, in every repo'
+    flag.onclick = e => { e.stopPropagation(); askClose(r) }
+    wrap.appendChild(flag)
+  }
   return wrap
 }
 function shading(from, to) {
