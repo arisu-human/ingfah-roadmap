@@ -1035,7 +1035,7 @@ function tickEl(r) {
   return t
 }
 
-// [tick] {name} [state] (done/total) [open in a new tab] [close the release]
+// [tick] {name} [state] (done/total) [close the release] [open in a new tab]
 function labelEl(r) {
   const wrap = elem('span', 'glab')
   const name = elem('span', 'gname')
@@ -1054,7 +1054,7 @@ function labelEl(r) {
   open.rel = 'noopener'
   open.title = 'Open the board filtered to this milestone'
   open.textContent = '↗'
-  wrap.append(tickEl(r), name, pill, cnt, open)
+  wrap.append(tickEl(r), name, pill, cnt)
   if (r.state !== 'closed') {
     const flag = elem('span', 'gopen gclose')
     flag.textContent = '🏁'
@@ -1062,6 +1062,7 @@ function labelEl(r) {
     flag.onclick = e => { e.stopPropagation(); askClose(r) }
     wrap.appendChild(flag)
   }
+  wrap.appendChild(open)
   return wrap
 }
 function shading(from, to) {
@@ -1887,11 +1888,11 @@ const COLS = [
     val:r => r.state === 'closed' ? 2 : r.inSprint ? 0 : 1 },
   { k:'name',  h:'Milestone', cell:r => '<span class="rel copy-name" data-t="' + esc(r.title)
       + '" data-tip="Click to copy the milestone name">' + esc(r.name) + '</span>'
-      + '<a class="gopen" target="_blank" rel="noopener" title="Open the board filtered to this milestone" href="'
-      + PROJECT_SLICE + encodeURIComponent(r.title) + '">↗</a>'
       + (r.state === 'closed' ? ''
           : '<span class="gopen gclose" data-t="' + esc(r.title)
-            + '" data-tip="Close this release on GitHub, in every repo">🏁</span>'),
+            + '" data-tip="Close this release on GitHub, in every repo">🏁</span>')
+      + '<a class="gopen" target="_blank" rel="noopener" title="Open the board filtered to this milestone" href="'
+      + PROJECT_SLICE + encodeURIComponent(r.title) + '">↗</a>',
     val:r => r.name.toLowerCase() },
   { k:'state', h:'State',
     cell:r => '<span class="pill ' + r.state + '" data-tip="' + esc(stateWhy(r)) + '">'
