@@ -518,7 +518,7 @@ const MS_FIELDS = `
   issues(first:$iss){
     totalCount
     nodes{
-      number title stateReason
+      number title state stateReason
       issueType{ name }
       assignees(first:5){ nodes{ login avatarUrl } }
       projectItems(first:5){ nodes{ project{ number }
@@ -794,7 +794,7 @@ function build(all) {
       const now = board || (last && last.status) || 'Backlog'
       statuses[now] = (statuses[now] || 0) + 1
       cards.push({ repo:i.repo, number:i.number, type:t, status:now, offBoard: !item,
-        title: i.title, people: i.assignees.nodes })
+        open: i.state === 'OPEN', title: i.title, people: i.assignees.nodes })
       for (const a of i.assignees.nodes) {
         const p = people.get(a.login) || { login:a.login, avatar:a.avatarUrl, n:0, qa:QA.has(a.login) }
         p.n++; people.set(a.login, p)
@@ -1533,6 +1533,103 @@ function askClearTicks() {
   $('ask').classList.add('on')
 }
 
+/* ---- closing a release, the way the PO milestone skill does it ----
+   Close in every repo, then move the date stamp into the bracket: "20260814 Name" becomes
+   "[Closed on 20260814] Name". The date is the one the title already carried, never the day
+   the button was pressed. A card whose board Status is Done but whose issue is still open is
+   bookkeeping and is closed first, with state_reason completed. A card in any other status is
+   listed in the confirm bar instead: closing over it hides it from every release view, and
+   that is a decision, not a default. */
+function closedTitle(r) {
+  const m = r.title.match(/^(\d{8})\s+(.*)$/)
+  return m ? '[Closed on ' + m[1] + '] ' + m[2]
+           : '[Closed on ' + stampOf(r.due) + '] ' + r.title
+}
+
+function askClose(r) {
+  if (!r || r.state === 'closed') return
+  if (r.cards.some(c => c.open === undefined)) {
+    return toast('This row was loaded by an older copy of the page. Press Refresh, then close.', 'err')
+  }
+  const targets = (r.refs || []).filter(f => !f.closed)
+  if (!targets.length) return toast(r.name + ' is already closed in every repo.', 'info')
+  const notDone = r.cards.filter(c => c.status !== STATUS_DONE)
+  const doneOpen = r.cards.filter(c => c.status === STATUS_DONE && c.open)
+  renameTo = null; paintRename()
+  pending = { close:true, row:r, targets, doneOpen }
+  $('askText').innerHTML = 'Close <b>' + esc(r.name) + '</b> and rename it to '
+    + esc(closedTitle(r).slice(0, 19) + ']') + '?'
+  $('askRepos').innerHTML = 'closes ' + targets.map(t => t.repo + ' #' + t.number).join(', ')
+    + (doneOpen.length ? ' · ' + doneOpen.length + ' Done card'
+        + (doneOpen.length > 1 ? 's' : '') + ' still open on GitHub will be closed first' : '')
+    + (notDone.length ? ' · <b class="late">' + notDone.length + ' card'
+        + (notDone.length > 1 ? 's' : '') + ' not Done</b> ('
+        + notDone.slice(0, 5).map(c => (REPO_SHORT[c.repo] || c.repo) + ' #' + c.number
+            + ' ' + esc(STATUS_SHORT[c.status] || c.status)).join(', ')
+        + (notDone.length > 5 ? ', +' + (notDone.length - 5) + ' more' : '')
+        + '), closing hides them from every release view' : '')
+  $('askGo').disabled = false
+  $('askGo').textContent = 'Close release'
+  $('ask').classList.add('on')
+}
+
+async function ghPatch(path, body, where) {
+  let res
+  try {
+    res = await fetch('https://api.github.com/repos/' + OWNER + '/' + path, {
+      method: 'PATCH',
+      headers: { 'Authorization':'Bearer ' + token(), 'Accept':'application/vnd.github+json',
+                 'Content-Type':'application/json' },
+      body: JSON.stringify(body)
+    })
+  } catch (e) { throw new Error(where + ': the request never reached GitHub (' + e.message + ')') }
+  const j = await res.json().catch(() => ({}))
+  if (res.status === 403 || res.status === 404) throw new Error(where + ': your sign-in cannot '
+    + 'change this (HTTP ' + res.status + '). It needs write access, and SSO authorised for ' + OWNER + '.')
+  if (!res.ok) throw new Error(where + ': HTTP ' + res.status + (j.message ? ' ' + j.message : ''))
+  return j
+}
+
+async function closeRelease({ row, targets, doneOpen }) {
+  const title = closedTitle(row)
+  const spin = busyToast('Closing ' + row.name + '...')
+  const won = []
+  try {
+    // bookkeeping first: a Done card whose issue never got closed
+    for (let i = 0; i < doneOpen.length; i++) {
+      const c = doneOpen[i]
+      spin.set('Closing card ' + (REPO_SHORT[c.repo] || c.repo) + ' #' + c.number
+        + ' \u00b7 ' + (i + 1) + ' of ' + doneOpen.length + '...')
+      await ghPatch(c.repo + '/issues/' + c.number,
+        { state:'closed', state_reason:'completed' }, c.repo + ' #' + c.number)
+    }
+    // then the milestone itself: closed and renamed in one write per repo, read back checked
+    for (const t of targets) {
+      const where = t.repo + ' #' + t.number
+      spin.set('Closing ' + where + ' \u00b7 ' + (won.length + 1) + ' of ' + targets.length + '...')
+      const j = await ghPatch(t.repo + '/milestones/' + t.number, { state:'closed', title }, where)
+      if (j.state !== 'closed') throw new Error(where + ': GitHub answered but the milestone came back ' + j.state)
+      if (j.title !== title) throw new Error(where + ': closed, but the title came back "' + j.title + '"')
+      won.push(where)
+    }
+    localStorage.removeItem(CACHE)
+    cancelAsk()
+    spin.set('Closed in ' + won.join(', ') + ' \u00b7 reading it back from GitHub...')
+    await load(true)
+    spin.done()
+    toast('Closed ' + row.name + ' \u00b7 ' + won.join(', ')
+      + (doneOpen.length ? ' \u00b7 ' + doneOpen.length + ' card'
+          + (doneOpen.length > 1 ? 's' : '') + ' closed on the way' : ''), 'ok')
+  } catch (e) {
+    spin.done()
+    const msg = e.message + (won.length ? ' — already closed: ' + won.join(', ') : '')
+    $('askText').innerHTML = '<span class="err">' + esc(msg) + '</span>'
+    $('askGo').disabled = false
+    $('askGo').textContent = 'Try again'
+    toast(msg, 'err')
+  }
+}
+
 function cancelAsk(redraw) {
   pending = null
   $('ask').classList.remove('on')
@@ -1580,6 +1677,8 @@ $('askNo').onclick = () => cancelAsk(true)
 $('askGo').onclick = async () => {
   if (!pending) return
   if (pending.ticks) { cancelAsk(); clearTicks(); return }
+  if (pending.close) { $('askGo').disabled = true; $('askGo').textContent = 'Closing...'
+                       closeRelease(pending); return }
   const { due, targets, titleBefore } = pending
   const title = renameOn ? renameTo : null
   const finalTitle = title || titleBefore
@@ -1779,7 +1878,10 @@ const COLS = [
   { k:'name',  h:'Milestone', cell:r => '<span class="rel copy-name" data-t="' + esc(r.title)
       + '" data-tip="Click to copy the milestone name">' + esc(r.name) + '</span>'
       + '<a class="gopen" target="_blank" rel="noopener" title="Open the board filtered to this milestone" href="'
-      + PROJECT_SLICE + encodeURIComponent(r.title) + '">↗</a>',
+      + PROJECT_SLICE + encodeURIComponent(r.title) + '">↗</a>'
+      + (r.state === 'closed' ? ''
+          : '<span class="gopen gclose" data-t="' + esc(r.title)
+            + '" data-tip="Close this release on GitHub, in every repo">🏁</span>'),
     val:r => r.name.toLowerCase() },
   { k:'state', h:'State',
     cell:r => '<span class="pill ' + r.state + '" data-tip="' + esc(stateWhy(r)) + '">'
@@ -1834,6 +1936,9 @@ function drawTable() {
   })
   $('table').querySelectorAll('.copy-name').forEach(el => {
     el.onclick = () => copyTitle(el.dataset.t)
+  })
+  $('table').querySelectorAll('.gclose').forEach(el => {
+    el.onclick = () => askClose(rowsCache.find(r => r.title === el.dataset.t))
   })
   $('table').querySelectorAll('.tick').forEach(el => {
     el.onclick = () => toggleSprint(el.dataset.t)
