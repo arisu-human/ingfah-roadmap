@@ -219,6 +219,8 @@
   .rel { color:inherit; cursor:pointer; border-bottom:1px dotted var(--hairline); }
   .rel:hover { color:var(--link); border-bottom-color:var(--link); }
   td .gopen { margin-left:6px; }
+  /* a span, not a link: it gets no hand cursor from the browser, so it says clickable itself */
+  .gclose { cursor:pointer; user-select:none; }
 
   /* The pie is the tallest thing in a row at 26px, so it sets the row height. Everything
      else grows to 24px to use that space instead of floating in it: the rows do not get
