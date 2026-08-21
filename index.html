@@ -3,10 +3,11 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>ingfah release roadmap</title>
+<title>Release Planner</title>
 <!-- Favicon is inline so the page stays one file and costs no extra request: three gantt
-     bars in ingfah teal, the shortest one Done-green, on the near-black ink square. -->
-<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%23181d26'/%3E%3Crect x='5' y='8' width='19' height='4.5' rx='2.25' fill='%2300BBA7'/%3E%3Crect x='9' y='15' width='18' height='4.5' rx='2.25' fill='%2300BBA7' opacity='.62'/%3E%3Crect x='5' y='22' width='11' height='4.5' rx='2.25' fill='%234ac26b'/%3E%3C/svg%3E">
+     bars in ingfah teal, the shortest one Done-green, on the white canvas the page uses.
+     Hairline border so the tile still has an edge on a light browser tab. -->
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect x='.75' y='.75' width='30.5' height='30.5' rx='6.5' fill='%23ffffff' stroke='%23dddddd' stroke-width='1.5'/%3E%3Crect x='5' y='8' width='19' height='4.5' rx='2.25' fill='%2300BBA7'/%3E%3Crect x='9' y='15' width='18' height='4.5' rx='2.25' fill='%2300BBA7' opacity='.5'/%3E%3Crect x='5' y='22' width='11' height='4.5' rx='2.25' fill='%234ac26b'/%3E%3C/svg%3E">
 <meta name="theme-color" content="#00BBA7">
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/vis-timeline@7.7.3/styles/vis-timeline-graph2d.min.css">
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -382,7 +383,7 @@
 <body>
 
 <header>
-  <h1>ingfah release roadmap</h1>
+  <h1>Release Planner</h1>
   <span class="muted" id="stamp"></span>
   <button id="refresh">Refresh</button>
   <span class="sep"></span>
@@ -1749,7 +1750,7 @@ function toMermaid(rows) {
     critBkgColor:'#f59e0b', critBorderColor:'#b45309', todayLineColor:'#d33' }
   const lines = ['```mermaid',
     '%%{init: {"themeVariables": ' + JSON.stringify(theme) + '}}%%', 'gantt',
-    '    title ingfah release roadmap', '    dateFormat YYYY-MM-DD', '    axisFormat %-d %b',
+    '    title Release Planner', '    dateFormat YYYY-MM-DD', '    axisFormat %-d %b',
     '    tickInterval 1week', '    weekday monday',
     '    todayMarker stroke-width:3px,stroke:#d33,opacity:0.9', '']
   let section = null
