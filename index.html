@@ -119,6 +119,11 @@
   .blocks i { flex:1 1 0; min-width:2px; box-sizing:border-box;
               border-right:1px solid rgba(255,255,255,.9); border-bottom:3px solid transparent; }
   .blocks i:last-child { border-right:0; }
+  /* zoomed far out, a bar is narrower than cards x 2px, and the overflow clipped on the
+     right read as missing cards. Dense mode drops the floor and the seams: every card
+     stays inside the bar and the strip reads as proportion, like the table's bar. */
+  .blocks.dense i { min-width:0; border-right:0; }
+  .blocks.dense i.idealine { flex:0 0 3px; min-width:3px; }
   /* a card with no Type set on GitHub: hatched, so it reads as needing attention */
   .notype { background-image:repeating-linear-gradient(45deg,
             rgba(0,0,0,.16) 0 2px, transparent 2px 5px) !important; }
@@ -1292,6 +1297,7 @@ function drawTimeline(rows) {
     timeline.on('rangechange', placeSprint)     // track it live while panning and zooming
     timeline.on('changed', placeSprint)
     timeline.on('changed', dressAxis)
+    timeline.on('changed', densify)
     addEventListener('resize', () => { lastSprintW = -1; placeSprint() })
     // vis measures the panel once, on construction. If the web font is still arriving, or the
     // container is laid out a frame later, it measures nothing and draws an empty chart that
@@ -1447,6 +1453,12 @@ function dressAxis() {
 // Every day gets its own grid line while there is room to print the number. Only when the
 // window is very wide do the lines drop back to one a week, then one a month.
 let axisScale = null
+// under 4px a card, seams eat the colour: switch the bar to dense
+function densify() {
+  for (const w of document.querySelectorAll('#tl .blocks'))
+    w.classList.toggle('dense', w.clientWidth / Math.max(1, w.childElementCount) < 4)
+}
+
 function tuneAxis() {
   if (!timeline) return
   const w = timeline.getWindow()
