@@ -210,8 +210,10 @@
   #ideaModal[hidden] { display:none; }    /* display:flex would out-rank the hidden attribute */
   .modalBox { background:var(--canvas); border:1px solid var(--hairline); border-radius:12px;
           padding:16px; width:min(560px, 92vw); box-shadow:0 12px 32px rgba(24,29,38,.18); }
-  .noteFields input[type=date] { font:inherit; font-size:12px; color:var(--ink); padding:4px 8px;
-          border:1px solid var(--hairline); border-radius:6px; background:var(--canvas); }
+  .noteFields .qk { font-size:12px; padding:3px 9px; border-radius:9999px; }
+  #dueSlider { width:100%; margin:10px 0 0; accent-color:var(--ink); }
+  .sliderScale { display:flex; justify-content:space-between; font-size:10px;
+          color:var(--soft-muted); margin-top:2px; }
   .sechead { font-size:11px; font-weight:500; letter-spacing:.8px; text-transform:uppercase;
           color:var(--soft-muted); margin:16px 0 6px; }
   .sechead:first-child { margin-top:0; }
@@ -572,6 +574,14 @@
         <select id="noteType"></select>
         <input id="noteDue" type="text" inputmode="numeric" placeholder="dd/mm/yyyy"
                class="dmy" title="Expected release date">
+        <button type="button" class="qk" data-d="3">next 3d</button>
+        <button type="button" class="qk" data-d="7">next 7d</button>
+        <button type="button" class="qk" data-d="14">next 14d</button>
+        <button type="button" class="qk" data-d="30">next 30d</button>
+      </div>
+      <input id="dueSlider" type="range" min="0" max="90" step="1" value="0">
+      <div class="sliderScale"><span>today</span><span>30d</span><span>60d</span><span>90d</span></div>
+      <div class="noteFields">
         <button id="noteAdd" class="primary">Add plan</button>
         <button id="noteOpen" hidden>To GitHub issue ↗</button>
         <button id="noteArchive" hidden>Archive</button>
@@ -1659,7 +1669,7 @@ function showFuture(shown, zoom) {
 const NOTES_REPO = 'zai-backend'
 const NOTES_TITLE = '📝 Release Planner notes'
 const NOTES_MARK = '<!-- release-planner-notes v1 -->'
-const NOTE_TYPES = ['no type', 'Story', 'Task', 'Bug', 'Defect', 'Epic']
+const NOTE_TYPES = ['no tag', 'Feature', 'Client Request', 'Earth Request', 'Boss Request']
 
 let notes = []
 try { notes = JSON.parse(localStorage.getItem('plannerNotes') || '[]') } catch (e) { notes = [] }
@@ -1780,7 +1790,7 @@ async function syncNotes(quiet) {
 function fillNoteFields() {
   const keep = $('noteType').value
   $('noteType').innerHTML = NOTE_TYPES.map(t =>
-    '<option value="' + (t === 'no type' ? '' : t) + '">' + t + '</option>').join('')
+    '<option value="' + (t === 'no tag' ? '' : t) + '">' + t + '</option>').join('')
   $('noteType').value = keep
 }
 
@@ -1951,6 +1961,7 @@ function ideaModal(open, n, preset) {
   $('noteText').value = n ? n.text : ''
   $('noteType').value = n ? (n.type || '') : ''
   $('noteDue').value = n ? toDMY(n.due) : ''    // a date picked once must not stick to the next
+  $('dueSlider').value = n && n.due ? Math.max(0, Math.min(90, daysTo(n.due))) : 0
   $('noteOpen').hidden = $('noteArchive').hidden = !n
   $('noteText').focus()
 }
@@ -2681,6 +2692,16 @@ $('table').addEventListener('click', e => {
 $('noteAdd').onclick = addNote
 $('ideaNew').onclick = () => ideaModal(true)
 $('noteCancel').onclick = () => ideaModal(false)
+const setPlanDue = d => {
+  $('noteDue').value = toDMY(dayOf(Date.now() + d * 864e5))
+  $('dueSlider').value = Math.max(0, Math.min(90, d))
+}
+document.querySelectorAll('.qk').forEach(b => { b.onclick = () => setPlanDue(+b.dataset.d) })
+$('dueSlider').oninput = () => setPlanDue(+$('dueSlider').value)
+$('noteDue').oninput = () => {
+  const iso = parseDMY($('noteDue').value)
+  $('dueSlider').value = iso ? Math.max(0, Math.min(90, daysTo(iso))) : 0
+}
 $('noteOpen').onclick = () => {
   const n = editingId && notes.find(x => x.id === editingId)
   if (n) window.open(noteToCardUrl(n), '_blank', 'noopener')
