@@ -198,15 +198,21 @@
 
   /* ---- table ---- */
   .toolrow { display:flex; align-items:center; flex-wrap:wrap; gap:10px 14px; margin-bottom:14px; }
+  .toolrow b { font-size:15px; }
   /* notes: a pre-plan pile. Deliberately plainer than the chart, it is a scratchpad. */
+  .sechead { font-size:11px; font-weight:500; letter-spacing:.8px; text-transform:uppercase;
+          color:var(--soft-muted); margin:16px 0 6px; }
+  .sechead:first-child { margin-top:0; }
+  .noteNew { background:var(--surface-soft); border:1px solid var(--hairline);
+          border-radius:10px; padding:12px; }
   .noteNew textarea { width:100%; font:inherit; color:var(--ink); padding:8px 12px; resize:vertical;
             border:1px solid var(--hairline); border-radius:6px; background:var(--canvas); }
   .noteNew textarea:focus { outline:2px solid var(--focus); outline-offset:-1px; }
-  .noteFields { display:flex; align-items:center; flex-wrap:wrap; gap:8px; margin:8px 0 4px; }
+  .noteFields { display:flex; align-items:center; flex-wrap:wrap; gap:8px; margin:8px 0 0; }
   .noteFields select { font:inherit; font-size:12px; color:var(--ink); padding:5px 8px;
             border:1px solid var(--hairline); border-radius:6px; background:var(--canvas); }
-  .note { display:flex; gap:10px; align-items:flex-start; padding:10px 0;
-          border-top:1px solid var(--hairline); }
+  .note { display:flex; gap:10px; align-items:flex-start; padding:10px 12px; margin-top:8px;
+          border:1px solid var(--hairline); border-radius:8px; background:var(--canvas); }
   .note .body { flex:1 1 auto; min-width:0; }
   .note .title { color:var(--ink); font-weight:500; word-break:break-word; }
   .note .rest { color:var(--muted); font-size:12px; white-space:pre-wrap; word-break:break-word;
@@ -233,7 +239,7 @@
   .qcell.over, #qtray.over { outline:2px solid var(--focus); outline-offset:-2px; }
   .qhead { font-size:12px; font-weight:500; color:var(--ink); }
   .qhead .muted { font-weight:400; margin-left:6px; }
-  #qtray { margin-top:10px; min-height:56px; }
+  #qtray { margin-top:10px; min-height:56px; border-style:dashed; background:var(--canvas); }
   .qnote { background:var(--canvas); border:1px solid var(--hairline); border-radius:8px;
           padding:6px 9px; margin-top:8px; cursor:grab; font-size:12px; }
   .qnote:active { cursor:grabbing; }
@@ -493,6 +499,7 @@
     <span class="sep"></span>
     <span class="muted" id="noteSync"></span>
   </div>
+  <div class="sechead">New idea</div>
   <div class="noteNew">
     <textarea id="noteText" rows="2"
       placeholder="An idea, a requirement, a thing to remember. First line is the title."></textarea>
@@ -502,8 +509,10 @@
       <button id="noteAdd" class="primary">Add note</button>
     </div>
   </div>
+  <div class="sechead" style="margin-top:18px">The pile</div>
   <div id="noteList"></div>
-  <div class="toolrow" id="archBar" hidden style="margin-top:10px;margin-bottom:0">
+  <div class="toolrow" id="archBar" hidden
+       style="margin-top:16px;margin-bottom:0;border-top:1px solid var(--hairline);padding-top:14px">
     <button id="archToggle"></button>
     <button id="archClear">Clear archived</button>
   </div>
