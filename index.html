@@ -218,9 +218,6 @@
           font-size:13px; user-select:none; }
   .note .acts span:hover { color:var(--ink); background:var(--surface-soft); }
   .note.done .title, .note.done .rest { text-decoration:line-through; color:var(--soft-muted); }
-  /* how many notes are waiting on a release, in the table and in the chart's name column */
-  .notebadge { flex:0 0 auto; font-size:10px; color:#006b60; background:rgba(0,187,167,.14);
-          border-radius:9999px; padding:1px 6px; cursor:pointer; }
   /* tabs: the release view and the priorities view never share a screen */
   .tabs { display:flex; gap:16px; align-self:flex-end; }
   .tabs button { border:none; background:none; border-radius:0; padding:4px 2px 6px;
@@ -243,6 +240,12 @@
   .qnote .title { color:var(--ink); font-weight:500; word-break:break-word; }
   .qnote .meta { display:flex; flex-wrap:wrap; gap:5px; margin-top:4px; }
   .qnote .chip { font-size:10px; padding:0 7px; }
+  .qnote .acts { float:right; margin-left:6px; cursor:pointer; color:var(--soft-muted);
+          font-size:12px; }
+  .qnote .acts:hover { color:var(--ink); }
+  /* an idea waiting on a release: a teal line at the front of the bar, the name on hover */
+  .blocks i.idealine { flex:0 0 4px; min-width:4px; background:rgba(0,187,167,.8);
+          border-bottom-color:transparent; cursor:default; }
   #tableBox { max-height:calc(100vh - 180px); overflow:auto; }
   table { border-collapse:collapse; width:100%; font-size:13px; }
   th, td { text-align:left; padding:5px 10px; border-bottom:1px solid var(--line); white-space:nowrap;
@@ -431,7 +434,7 @@
   <h1>Release Planner</h1>
   <nav class="tabs">
     <button id="tabRel" class="on">Releases</button>
-    <button id="tabQuad">Priorities</button>
+    <button id="tabQuad">Ideas</button>
   </nav>
   <span class="muted" id="stamp"></span>
   <button id="refresh">Refresh</button>
@@ -483,9 +486,9 @@
   <div id="tl"></div>
 </div>
 
-<div class="card tabR" id="notes">
+<div class="card tabQ" id="notes" hidden>
   <div class="toolrow">
-    <b>Notes</b>
+    <b>Ideas</b>
     <span class="muted" id="noteCount"></span>
     <span class="sep"></span>
     <span class="muted" id="noteSync"></span>
@@ -500,9 +503,14 @@
     </div>
   </div>
   <div id="noteList"></div>
+  <div class="toolrow" id="archBar" hidden style="margin-top:10px;margin-bottom:0">
+    <button id="archToggle"></button>
+    <button id="archClear">Clear archived</button>
+  </div>
+  <div id="archList" hidden></div>
 </div>
 
-<div class="card" id="quadCard" hidden>
+<div class="card tabQ" id="quadCard" hidden>
   <div class="toolrow">
     <b>Priorities</b>
     <span class="muted" id="quadCount"></span>
@@ -1087,6 +1095,12 @@ function blocksEl(r, i) {
   wrap.dataset.id = i
   wrap.dataset.tip = itemTooltip(r)
   const grey = r.state === 'closed'
+  for (const n of liveNotes()) {
+    if (isArch(n) || n.ms !== r.title) continue
+    const l = elem('i', 'idealine')
+    l.dataset.tip = '💡 ' + esc(noteTitle(n)) + '<br><i>idea, here ' + ideaAge(n.createdAt) + '</i>'
+    wrap.appendChild(l)
+  }
   for (const c of r.cards) {
     const b = elem('i', (c.type === 'no type' ? 'notype' : '') + (matchCard(c) ? ' hit' : ''))
     b.style.background = grey ? '#dde2e7' : (STATUS_COLOR[c.status] || '#afb8c1')
@@ -1132,14 +1146,6 @@ function labelEl(r) {
   name.dataset.tip = esc(r.name) + '<br><i>click to copy the milestone name</i>'
   name.style.cursor = 'pointer'
   name.onclick = e => { e.stopPropagation(); copyTitle(r.title) }
-  const waiting = liveNotes().filter(n => !n.done && n.ms === r.title).length
-  if (waiting) {
-    const b = elem('span', 'notebadge')
-    b.textContent = '📝 ' + waiting
-    b.dataset.tip = waiting + ' note' + (waiting > 1 ? 's' : '') + ' waiting on this release'
-    b.onclick = e => { e.stopPropagation(); $('notes').scrollIntoView({ behavior:'smooth', block:'center' }) }
-    wrap.appendChild(b)
-  }
   const pill = elem('span', 'pill ' + r.state)
   pill.textContent = STATE_LABEL[r.state]
   pill.dataset.tip = stateWhy(r)
@@ -1642,7 +1648,7 @@ function notesBody(list) {
   return NOTES_MARK + '\n\n**Pre-plan notes from the Release Planner.** Edited by the page, not '
     + 'by hand: anything typed here is overwritten on the next sync.\n\n'
     + (live.length ? live.map(n => '- ' + (n.ms ? '**[' + cleanTitle(n.ms) + ']** ' : '')
-        + noteTitle(n) + (n.done ? ' _(done)_' : '')).join('\n') : '_No notes._')
+        + noteTitle(n) + (isArch(n) ? ' _(archived)_' : '')).join('\n') : '_No notes._')
     + '\n\n```json\n' + JSON.stringify(list, null, 1) + '\n```\n'
 }
 
@@ -1710,56 +1716,80 @@ function noteToCardUrl(n) {
   return 'https://github.com/' + OWNER + '/' + repo + '/issues/new?' + p
 }
 
+// an idea archived under the old name keeps its old flag
+const isArch = n => !!(n.archived || n.done)
+// age from birth: an edit or a rename never resets it
+const ideaAge = t => { const d = Math.floor((Date.now() - (t || Date.now())) / 864e5)
+  return d < 1 ? 'today' : d < 14 ? d + 'd' : d < 61 ? Math.floor(d / 7) + 'w'
+       : Math.floor(d / 30.44) + 'mo' }
+
+function renameIdea(n) {
+  const text = prompt('Idea', n.text)
+  if (text == null) return
+  n.text = text; n.updatedAt = Date.now(); saveNotes()
+}
+
+function noteEl(n) {
+  const el = elem('div', 'note' + (isArch(n) ? ' done' : ''))
+  const body = elem('div', 'body')
+  const t = elem('div', 'title'); t.textContent = noteTitle(n) || '(empty idea)'
+  body.appendChild(t)
+  if (noteRest(n)) { const r = elem('div', 'rest'); r.textContent = noteRest(n); body.appendChild(r) }
+  const meta = elem('div', 'meta')
+  const chip = (text, cls) => { const c = elem('span', 'chip ' + (cls || '')); c.textContent = text
+                                meta.appendChild(c); return c }
+  if (n.type) chip(n.type)
+  chip(n.ms ? cleanTitle(n.ms) : 'unplanned', n.ms ? 'pill upcoming' : '')
+  if (n.effort && n.impact) chip(QUAD_NAME[n.effort + n.impact])
+  const age = chip(ideaAge(n.createdAt), 'pill closed')
+  age.dataset.tip = 'here since ' + pretty(dayOf(n.createdAt || Date.now()))
+    + '<br><i>a rename does not reset it</i>'
+  body.appendChild(meta)
+
+  const acts = elem('div', 'acts')
+  const act = (glyph, tip, fn) => {
+    const a = elem('span'); a.textContent = glyph; a.dataset.tip = tip; a.onclick = fn
+    acts.appendChild(a)
+  }
+  if (!isArch(n)) {
+    act('✎', 'Rename this idea', () => renameIdea(n))
+    act('↗', 'Open a new GitHub issue with this idea in it',
+      () => window.open(noteToCardUrl(n), '_blank', 'noopener'))
+    act('🗄', 'Archive it', () => { n.archived = true; n.updatedAt = Date.now(); saveNotes() })
+  } else {
+    act('↺', 'Put it back on the pile', () => {
+      n.archived = false; delete n.done; n.updatedAt = Date.now(); saveNotes() })
+    act('🗑', 'Delete it for good', () => {
+      if (!confirm('Delete this idea for good?\n\n' + noteTitle(n))) return
+      n.deleted = true; n.text = ''; n.updatedAt = Date.now(); saveNotes()
+    })
+  }
+  el.append(body, acts)
+  return el
+}
+
+let archOpen = false
 function drawNotes() {
   drawQuads()
   const live = liveNotes()
-  const open = live.filter(n => !n.done).length
+  const open = live.filter(n => !isArch(n))
+  const arch = live.filter(isArch)
   $('noteCount').textContent = live.length
-    ? open + ' open' + (live.length > open ? ' · ' + (live.length - open) + ' done' : '') : ''
+    ? open.length + ' open' + (arch.length ? ' \u00b7 ' + arch.length + ' archived' : '') : ''
   const box = $('noteList')
   box.textContent = ''
-  for (const n of live) {
-    const el = elem('div', 'note' + (n.done ? ' done' : ''))
-    const body = elem('div', 'body')
-    const t = elem('div', 'title'); t.textContent = noteTitle(n) || '(empty note)'
-    body.appendChild(t)
-    if (noteRest(n)) { const r = elem('div', 'rest'); r.textContent = noteRest(n); body.appendChild(r) }
-    const meta = elem('div', 'meta')
-    const chip = (text, cls) => { const c = elem('span', 'chip ' + (cls || '')); c.textContent = text
-                                  meta.appendChild(c) }
-    if (n.type) chip(n.type)
-    chip(n.ms ? cleanTitle(n.ms) : 'unplanned', n.ms ? 'pill upcoming' : '')
-    if (n.effort && n.impact) chip(QUAD_NAME[n.effort + n.impact])
-    const when = elem('span', 'chip'); when.textContent = pretty(dayOf(n.createdAt || Date.now()))
-    meta.appendChild(when)
-    body.appendChild(meta)
-
-    const acts = elem('div', 'acts')
-    const act = (glyph, tip, fn) => {
-      const a = elem('span'); a.textContent = glyph; a.dataset.tip = tip; a.onclick = fn
-      acts.appendChild(a)
-    }
-    act(n.done ? '↺' : '☑', n.done ? 'Put it back on the pile' : 'Mark it handled',
-      () => { n.done = !n.done; n.updatedAt = Date.now(); saveNotes() })
-    act('↗', 'Open a new GitHub issue with this note in it',
-      () => window.open(noteToCardUrl(n), '_blank', 'noopener'))
-    act('✎', 'Edit this note', () => {
-      const text = prompt('Note', n.text)
-      if (text == null) return
-      n.text = text; n.updatedAt = Date.now(); saveNotes()
-    })
-    act('🗑', 'Delete this note', () => {
-      if (!confirm('Delete this note?\n\n' + noteTitle(n))) return
-      n.deleted = true; n.text = ''; n.updatedAt = Date.now(); saveNotes()
-    })
-    el.append(body, acts)
-    box.appendChild(el)
-  }
-  if (!live.length) {
+  for (const n of open) box.appendChild(noteEl(n))
+  if (!open.length) {
     const p = elem('p', 'muted')
     p.textContent = 'Nothing yet. Anything you would otherwise forget by tomorrow goes here.'
     box.appendChild(p)
   }
+  $('archBar').hidden = !arch.length
+  $('archToggle').textContent = (archOpen ? 'Hide archived' : 'Archived') + ' (' + arch.length + ')'
+  const ab = $('archList')
+  ab.textContent = ''
+  ab.hidden = !archOpen || !arch.length
+  if (archOpen && arch.length) for (const n of arch) ab.appendChild(noteEl(n))
 }
 
 /* ---- priorities: the pile rated on two axes -----------------------------------------
@@ -1773,7 +1803,11 @@ function qnoteEl(n) {
   el.draggable = true
   el.ondragstart = e => { e.dataTransfer.setData('text/plain', n.id)
                           e.dataTransfer.effectAllowed = 'move' }
-  const t = elem('div', 'title'); t.textContent = noteTitle(n) || '(empty note)'
+  const pen = elem('span', 'acts'); pen.textContent = '\u270e'
+  pen.dataset.tip = 'Rename this idea'
+  pen.onclick = e => { e.stopPropagation(); renameIdea(n) }
+  el.appendChild(pen)
+  const t = elem('div', 'title'); t.textContent = noteTitle(n) || '(empty idea)'
   el.appendChild(t)
   const meta = elem('div', 'meta')
   const chip = text => { const c = elem('span', 'chip'); c.textContent = text; meta.appendChild(c) }
@@ -1785,7 +1819,7 @@ function qnoteEl(n) {
 
 function drawQuads() {
   if (!$('quadCard')) return
-  const live = liveNotes().filter(n => !n.done)
+  const live = liveNotes().filter(n => !isArch(n))
   let unrated = 0
   for (const cell of document.querySelectorAll('.qcell, #qtray')) {
     const body = cell.querySelector('.qbody')
@@ -2236,9 +2270,7 @@ const COLS = [
       + (r.inSprint ? '☑' : '☐') + '</span>',
     val:r => r.state === 'closed' ? 2 : r.inSprint ? 0 : 1 },
   { k:'name',  h:'Milestone', cell:r => (() => {
-      const waiting = liveNotes().filter(n => !n.done && n.ms === r.title).length
-      return waiting ? '<span class="notebadge" data-tip="' + waiting + ' note'
-        + (waiting > 1 ? 's' : '') + ' waiting on this release">📝 ' + waiting + '</span> ' : ''
+      return ''
     })()
       + '<span class="rel copy-name" data-t="' + esc(r.title)
       + '" data-tip="Click to copy the milestone name">' + esc(r.name) + '</span>'
@@ -2538,7 +2570,7 @@ $('table').addEventListener('click', e => {
 $('noteAdd').onclick = addNote
 function showTab(quad) {
   document.querySelectorAll('.tabR').forEach(el => el.hidden = quad)
-  $('quadCard').hidden = !quad
+  document.querySelectorAll('.tabQ').forEach(el => el.hidden = !quad)
   $('tabRel').classList.toggle('on', !quad)
   $('tabQuad').classList.toggle('on', quad)
   if (quad) drawQuads()
@@ -2546,6 +2578,15 @@ function showTab(quad) {
   else if (timeline) timeline.redraw()
 }
 $('tabRel').onclick = () => showTab(false)
+$('archToggle').onclick = () => { archOpen = !archOpen; drawNotes() }
+$('archClear').onclick = () => {
+  const arch = liveNotes().filter(isArch)
+  if (!arch.length) return
+  if (!confirm('Delete ' + arch.length + ' archived idea' + (arch.length > 1 ? 's' : '')
+    + ' for good?')) return
+  for (const n of arch) { n.deleted = true; n.text = ''; n.updatedAt = Date.now() }
+  saveNotes()
+}
 $('tabQuad').onclick = () => showTab(true)
 for (const cell of document.querySelectorAll('.qcell, #qtray')) {
   cell.ondragover = e => { e.preventDefault(); cell.classList.add('over') }
