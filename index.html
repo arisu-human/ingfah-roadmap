@@ -560,7 +560,8 @@
         placeholder="A plan, a requirement, a thing to remember. First line is the title."></textarea>
       <div class="noteFields">
         <select id="noteType"></select>
-        <input id="noteDue" type="date" title="Expected release date">
+        <input id="noteDue" type="text" inputmode="numeric" placeholder="dd/mm/yyyy"
+               class="dmy" title="Expected release date">
         <button id="noteAdd" class="primary">Add plan</button>
         <button id="noteOpen" hidden>To GitHub issue ↗</button>
         <button id="noteArchive" hidden>Archive</button>
@@ -1860,11 +1861,12 @@ function addNote() {
   if (!text) return $('noteText').focus()
   const n = editingId && notes.find(x => x.id === editingId)
   if (n) {
-    n.text = text; n.type = $('noteType').value || ''; n.due = $('noteDue').value || ''
+    n.text = text; n.type = $('noteType').value || ''
+    n.due = parseDMY($('noteDue').value) || ''
     n.updatedAt = Date.now()
   } else {
     notes.unshift({ id: noteId(), text, type: $('noteType').value || '',
-                    due: $('noteDue').value || '', done:false,
+                    due: parseDMY($('noteDue').value) || '', done:false,
                     createdAt: Date.now(), updatedAt: Date.now() })
   }
   ideaModal(false)
@@ -1881,7 +1883,7 @@ function ideaModal(open, n) {
   $('noteAdd').textContent = n ? 'Save' : 'Add plan'
   $('noteText').value = n ? n.text : ''
   $('noteType').value = n ? (n.type || '') : ''
-  $('noteDue').value = n ? (n.due || '') : ''   // a date picked once must not stick to the next
+  $('noteDue').value = n ? toDMY(n.due) : ''    // a date picked once must not stick to the next
   $('noteOpen').hidden = $('noteArchive').hidden = !n
   $('noteText').focus()
 }
