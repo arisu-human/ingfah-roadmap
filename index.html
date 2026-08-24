@@ -222,8 +222,11 @@
   .notebadge { flex:0 0 auto; font-size:10px; color:#006b60; background:rgba(0,187,167,.14);
           border-radius:9999px; padding:1px 6px; cursor:pointer; }
   /* tabs: the release view and the priorities view never share a screen */
-  .tabs { display:flex; gap:6px; }
-  .tabs button.on { background:var(--ink); color:#fff; border-color:var(--ink); }
+  .tabs { display:flex; gap:16px; align-self:flex-end; }
+  .tabs button { border:none; background:none; border-radius:0; padding:4px 2px 6px;
+          color:var(--muted); border-bottom:2px solid transparent; }
+  .tabs button:hover { background:none; color:var(--ink); }
+  .tabs button.on { color:var(--ink); border-bottom-color:var(--ink); }
   /* priorities: four boxes, effort across, impact down */
   .quadCols { display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-bottom:6px;
           font-size:12px; color:var(--muted); text-align:center; }
@@ -507,16 +510,16 @@
     <span class="sep"></span>
     <span class="muted">Drag a note into a box. Back to the pile = not rated.</span>
   </div>
-  <div class="quadCols"><span>Fast to build</span><span>Slow to build</span></div>
+  <div class="quadCols"><span>Slow to build</span><span>Fast to build</span></div>
   <div class="quadGrid">
-    <div class="qcell" data-e="fast" data-i="high">
-      <div class="qhead">Do first<span class="muted">high impact</span></div><div class="qbody"></div></div>
     <div class="qcell" data-e="slow" data-i="high">
-      <div class="qhead">Big bet<span class="muted">high impact</span></div><div class="qbody"></div></div>
-    <div class="qcell" data-e="fast" data-i="low">
-      <div class="qhead">Fill-in<span class="muted">low impact</span></div><div class="qbody"></div></div>
+      <div class="qhead">Major Projects<span class="muted">high impact, slow</span></div><div class="qbody"></div></div>
+    <div class="qcell" data-e="fast" data-i="high">
+      <div class="qhead">Quick Wins<span class="muted">high impact, fast</span></div><div class="qbody"></div></div>
     <div class="qcell" data-e="slow" data-i="low">
-      <div class="qhead">Skip<span class="muted">low impact</span></div><div class="qbody"></div></div>
+      <div class="qhead">Deprioritize<span class="muted">low impact, slow</span></div><div class="qbody"></div></div>
+    <div class="qcell" data-e="fast" data-i="low">
+      <div class="qhead">Fill-Ins<span class="muted">low impact, fast</span></div><div class="qbody"></div></div>
   </div>
   <div id="qtray"><div class="qhead">Not rated yet</div><div class="qbody"></div></div>
 </div>
@@ -1767,7 +1770,7 @@ function drawNotes() {
    A note earns a place in one of four boxes: effort (fast or slow to build) by impact
    (high or low). The rating lives on the note itself, so it syncs with the pile and any
    browser sees the same board. Done and deleted notes leave the board on their own. */
-const QUAD_NAME = { fasthigh:'Do first', slowhigh:'Big bet', fastlow:'Fill-in', slowlow:'Skip' }
+const QUAD_NAME = { fasthigh:'Quick Wins', slowhigh:'Major Projects', fastlow:'Fill-Ins', slowlow:'Deprioritize' }
 
 function qnoteEl(n) {
   const el = elem('div', 'qnote')
