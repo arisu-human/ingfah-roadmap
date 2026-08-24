@@ -271,6 +271,10 @@
   .qnote { background:var(--canvas); border:1px solid var(--hairline); border-radius:8px;
           padding:6px 9px; cursor:grab; font-size:12px; width:fit-content; max-width:100%; }
   .qnote:active { cursor:grabbing; }
+  .qadd { border:1px dashed var(--border-strong, #9297a0); border-radius:8px; padding:5px 10px;
+          font-size:12px; color:var(--soft-muted); cursor:pointer; background:transparent;
+          width:fit-content; }
+  .qadd:hover { color:var(--ink); border-color:var(--ink); background:var(--canvas); }
   .qnote .title { color:var(--ink); font-weight:500; word-break:break-word; }
   .qnote .meta { display:flex; flex-wrap:wrap; gap:5px; margin-top:4px; }
   .qnote .chip { font-size:10px; padding:0 7px; }
@@ -570,6 +574,8 @@
     <div class="noteNew">
       <textarea id="noteText" rows="3"
         placeholder="A plan, a requirement, a thing to remember. First line is the title."></textarea>
+      <input id="noteFigma" type="url" placeholder="Figma URL (optional)"
+             style="width:100%;margin-top:8px;font-size:12px">
       <div class="noteFields">
         <select id="noteType"></select>
         <input id="noteDue" type="text" inputmode="numeric" placeholder="dd/mm/yyyy"
@@ -579,8 +585,6 @@
         <button type="button" class="qk" data-d="14">next 14d</button>
         <button type="button" class="qk" data-d="30">next 30d</button>
       </div>
-      <input id="noteFigma" type="url" placeholder="Figma URL (optional)"
-             style="width:100%;margin-top:8px;font-size:12px">
       <input id="dueSlider" type="range" min="0" max="90" step="1" value="0">
       <div class="sliderScale"><span>today</span><span>30d</span><span>60d</span><span>90d</span></div>
       <div class="noteFields">
@@ -1890,9 +1894,10 @@ function qnoteEl(n) {
   if (n.type) chip(n.type)
   if (n.figma) {
     const a = document.createElement('a')
-    a.className = 'chip'; a.textContent = '🎨 Figma'
+    a.textContent = '🎨'
     a.href = n.figma; a.target = '_blank'; a.rel = 'noopener'
-    a.style.textDecoration = 'none'
+    a.style.textDecoration = 'none'; a.style.fontSize = '12px'
+    a.dataset.tip = 'Open the Figma'
     a.onclick = ev => ev.stopPropagation()
     meta.appendChild(a)
   }
@@ -1927,6 +1932,11 @@ function drawQuads() {
                       || (b.createdAt || 0) - (a.createdAt || 0))
     if (cell.id === 'qtray') unrated = list.length
     for (const n of list) body.appendChild(qnoteEl(n))
+    if (cell.id !== 'qtray') {
+      const add = elem('span', 'qadd')
+      add.textContent = '+ Plan'
+      body.appendChild(add)          // the cell's own click handler does the rest
+    }
   }
   $('quadCount').textContent = live.length
     ? live.length + ' open' + (unrated ? ' \u00b7 ' + unrated + ' not rated' : '') : ''
