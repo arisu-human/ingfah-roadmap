@@ -271,6 +271,11 @@
   .qnote .acts { float:right; margin-left:6px; cursor:pointer; color:var(--soft-muted);
           font-size:12px; }
   .qnote .acts:hover { color:var(--ink); }
+  /* a plan's expected release date: a flag on the chart at that day, names on hover */
+  #flags { position:absolute; inset:0 0 auto 0; height:0; overflow:visible; z-index:4;
+          pointer-events:none; }
+  #flags .flag { position:absolute; top:1px; transform:translateX(-50%); font-size:12px;
+          pointer-events:auto; cursor:default; }
   /* an idea waiting on a release: a teal line at the front of the bar, the name on hover */
   .blocks i.idealine { flex:0 0 4px; min-width:4px; background:rgba(0,187,167,.8);
           border-bottom-color:transparent; cursor:default; }
@@ -1316,6 +1321,8 @@ function drawTimeline(rows) {
     timeline.on('changed', placeSprint)
     timeline.on('changed', dressAxis)
     timeline.on('changed', fitBars)
+    timeline.on('changed', placeFlags)
+    timeline.on('rangechange', placeFlags)
     addEventListener('resize', () => { lastSprintW = -1; placeSprint() })
     // vis measures the panel once, on construction. If the web font is still arriving, or the
     // container is laid out a frame later, it measures nothing and draws an empty chart that
@@ -1492,6 +1499,33 @@ function tuneAxis() {
 /* ---- sprint pane: a frosted block laid over the chart between two dates ---- */
 let sprint = null
 try { sprint = JSON.parse(localStorage.getItem('sprint') || 'null') } catch (e) { sprint = null }
+let flagsEl = null
+function placeFlags() {
+  if (!timeline) return
+  if (!flagsEl) {
+    flagsEl = elem('div'); flagsEl.id = 'flags'
+    timeline.dom.center.parentNode.appendChild(flagsEl)
+  }
+  flagsEl.textContent = ''
+  const plans = liveNotes().filter(n => !isArch(n) && n.due)
+  if (!plans.length) return
+  const w = timeline.getWindow()
+  const box = timeline.dom.center.parentNode.getBoundingClientRect()
+  const at = d => (bkk(d) - w.start) / (w.end - w.start) * box.width
+  const by = new Map()
+  for (const n of plans) { if (!by.has(n.due)) by.set(n.due, []); by.get(n.due).push(n) }
+  for (const [d, list] of by) {
+    const x = (at(d) + at(plus(d, 1))) / 2       // the middle of that day's column
+    if (x < 0 || x > box.width) continue
+    const f = elem('span', 'flag')
+    f.textContent = '🚩'
+    f.style.left = x + 'px'
+    f.dataset.tip = '<b>exp ' + pretty(d) + '</b><br>'
+      + list.map(n => esc(noteTitle(n))).join('<br>')
+    flagsEl.appendChild(f)
+  }
+}
+
 let sprintEl = null, lastSprintW = -1
 
 function placeSprint() {
@@ -1798,6 +1832,7 @@ function noteEl(n) {
 let archOpen = false
 function drawNotes() {
   drawQuads()
+  if (timeline) placeFlags()
   const arch = liveNotes().filter(isArch)
   $('archBar').hidden = !arch.length
   $('archToggle').textContent = (archOpen ? 'Hide archived' : 'Archived') + ' (' + arch.length + ')'
