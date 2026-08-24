@@ -495,7 +495,6 @@
       placeholder="An idea, a requirement, a thing to remember. First line is the title."></textarea>
     <div class="noteFields">
       <select id="noteType"></select>
-      <select id="noteRepo"></select>
       <select id="noteMs"></select>
       <button id="noteAdd" class="primary">Add note</button>
     </div>
@@ -1689,16 +1688,14 @@ async function syncNotes(quiet) {
 // the new-note row: type, repo and release are all optional, because a note that needs three
 // decisions before it can be written is a card, and cards are what this is not
 function fillNoteFields() {
-  const keep = { t:$('noteType').value, r:$('noteRepo').value, m:$('noteMs').value }
+  const keep = { t:$('noteType').value, m:$('noteMs').value }
   $('noteType').innerHTML = NOTE_TYPES.map(t =>
     '<option value="' + (t === 'no type' ? '' : t) + '">' + t + '</option>').join('')
-  $('noteRepo').innerHTML = '<option value="">no repo</option>'
-    + REPOS.map(r => '<option value="' + r + '">' + (REPO_SHORT[r] || r) + '</option>').join('')
   const open = rowsCache.filter(r => r.state !== 'closed')
     .sort((a, b) => a.due.localeCompare(b.due))
   $('noteMs').innerHTML = '<option value="">unplanned</option>'
     + open.map(r => '<option value="' + esc(r.title) + '">' + esc(r.name) + '</option>').join('')
-  $('noteType').value = keep.t; $('noteRepo').value = keep.r; $('noteMs').value = keep.m
+  $('noteType').value = keep.t; $('noteMs').value = keep.m
 }
 
 // GitHub's new-issue form takes title, body and milestone in the query string, so a note
@@ -1731,7 +1728,6 @@ function drawNotes() {
     const chip = (text, cls) => { const c = elem('span', 'chip ' + (cls || '')); c.textContent = text
                                   meta.appendChild(c) }
     if (n.type) chip(n.type)
-    if (n.repo) chip(REPO_SHORT[n.repo] || n.repo)
     chip(n.ms ? cleanTitle(n.ms) : 'unplanned', n.ms ? 'pill upcoming' : '')
     if (n.effort && n.impact) chip(QUAD_NAME[n.effort + n.impact])
     const when = elem('span', 'chip'); when.textContent = pretty(dayOf(n.createdAt || Date.now()))
@@ -1782,7 +1778,6 @@ function qnoteEl(n) {
   const meta = elem('div', 'meta')
   const chip = text => { const c = elem('span', 'chip'); c.textContent = text; meta.appendChild(c) }
   if (n.type) chip(n.type)
-  if (n.repo) chip(REPO_SHORT[n.repo] || n.repo)
   if (n.ms) chip(cleanTitle(n.ms))
   if (meta.children.length) el.appendChild(meta)
   return el
@@ -1808,7 +1803,7 @@ function drawQuads() {
 function addNote() {
   const text = $('noteText').value.trim()
   if (!text) return $('noteText').focus()
-  notes.unshift({ id: noteId(), text, type: $('noteType').value || '', repo: $('noteRepo').value || '',
+  notes.unshift({ id: noteId(), text, type: $('noteType').value || '',
                   ms: $('noteMs').value || '', done:false, createdAt: Date.now(), updatedAt: Date.now() })
   $('noteText').value = ''
   $('noteMs').value = ''          // a release pinned to one note must not stick to the next
