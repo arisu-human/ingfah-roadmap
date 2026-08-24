@@ -248,6 +248,10 @@
   .quadGrid { display:grid; grid-template-columns:1fr 1fr; gap:10px; }
   .qcell, #qtray { border:1px solid var(--hairline); border-radius:10px; padding:10px;
           min-height:150px; background:var(--surface-soft); }
+  /* the board owns the screen: two rows split what the viewport gives */
+  .qcell { min-height:max(150px, calc(50vh - 200px)); }
+  .chip.heat-hot  { background:#ffebe9; color:#cf222e; border-color:#ffcecb; }
+  .chip.heat-warm { background:#fff8c5; color:#9a6700; border-color:#fae17d; }
   /* each priority wears its own weather: green go, blue invest, yellow spare time, grey no */
   .qcell[data-e="fast"][data-i="high"] { background:#dafbe1; border-color:#aceebb; }
   .qcell[data-e="fast"][data-i="high"] .qhead { color:#1a7f37; }
@@ -269,11 +273,12 @@
   .qnote .meta { display:flex; flex-wrap:wrap; gap:5px; margin-top:4px; }
   .qnote .chip { font-size:10px; padding:0 7px; }
   .qnote .acts { float:right; margin-left:6px; cursor:pointer; color:var(--soft-muted);
-          font-size:12px; }
+          font-size:12px; display:inline-block; transform:scaleX(-1); }
   .qnote .acts:hover { color:var(--ink); }
   /* a plan's expected release date: a flag on the chart at that day, names on hover */
-  #flags { position:absolute; inset:0 0 auto 0; height:0; overflow:visible; z-index:4;
-          pointer-events:none; }
+  #flags { position:absolute; inset:0; overflow:hidden; z-index:4; pointer-events:none; }
+  #flags .flagline { position:absolute; top:0; bottom:0; width:0;
+          border-left:1px solid rgba(207,34,46,.55); }
   #flags .flag { position:absolute; top:1px; transform:translateX(-50%); font-size:12px;
           pointer-events:auto; cursor:default; }
   /* an idea waiting on a release: a teal line at the front of the bar, the name on hover */
@@ -522,10 +527,10 @@
 <div class="card tabQ" id="quadCard" hidden>
   <div class="toolrow">
     <b>Plan</b>
-    <button id="ideaNew" class="primary">+ Plan</button>
     <span class="muted" id="quadCount"></span>
     <span class="sep"></span>
     <span class="muted" id="noteSync"></span>
+    <button id="ideaNew" class="primary" style="margin-left:auto">+ Plan</button>
   </div>
   <div class="quadCols"><span>Slow to build</span><span>Fast to build</span></div>
   <div class="quadGrid">
@@ -1515,11 +1520,15 @@ function placeFlags() {
   const by = new Map()
   for (const n of plans) { if (!by.has(n.due)) by.set(n.due, []); by.get(n.due).push(n) }
   for (const [d, list] of by) {
-    const x = (at(d) + at(plus(d, 1))) / 2       // the middle of that day's column
-    if (x < 0 || x > box.width) continue
+    const x2 = at(plus(d, 1))                    // the deadline: that day fully spent
+    if (x2 < 0 || x2 > box.width) continue
+    const line = elem('span', 'flagline')
+    line.style.left = x2 + 'px'
+    flagsEl.appendChild(line)
     const f = elem('span', 'flag')
     f.textContent = '🚩'
-    f.style.left = x + 'px'
+    f.style.left = x2 + 'px'
+    f.style.transform = 'translateX(-100%)'      // the flag leans on its line from the left
     f.dataset.tip = '<b>exp ' + pretty(d) + '</b><br>'
       + list.map(n => esc(noteTitle(n))).join('<br>')
     flagsEl.appendChild(f)
@@ -1847,6 +1856,10 @@ function drawNotes() {
    (high or low). The rating lives on the note itself, so it syncs with the pile and any
    browser sees the same board. Done and deleted notes leave the board on their own. */
 const QUAD_NAME = { fasthigh:'Quick Wins', slowhigh:'Major Projects', fastlow:'Fill-Ins', slowlow:'Deprioritize' }
+let dueMode = localStorage.getItem('dueMode') || 'date'   // 'date' = 28 Aug, 'rel' = 4d
+const daysTo = iso => Math.ceil((bkk(iso) - Date.now()) / 864e5)
+const relDue = d => d < 0 ? Math.abs(d) + 'd late' : d === 0 ? 'today'
+  : d < 7 ? d + 'd' : d < 28 ? Math.floor(d / 7) + 'w' : '>4w'
 
 function qnoteEl(n) {
   const el = elem('div', 'qnote')
@@ -1860,10 +1873,22 @@ function qnoteEl(n) {
   const t = elem('div', 'title'); t.textContent = noteTitle(n) || '(empty plan)'
   el.appendChild(t)
   const meta = elem('div', 'meta')
-  const chip = text => { const c = elem('span', 'chip'); c.textContent = text; meta.appendChild(c) }
+  const chip = (text, cls) => { const c = elem('span', 'chip' + (cls ? ' ' + cls : ''))
+                                c.textContent = text; meta.appendChild(c); return c }
   if (n.type) chip(n.type)
   if (n.ms) chip(cleanTitle(n.ms))
-  else if (n.due) chip('exp ' + pretty(n.due))
+  else if (n.due) {
+    const d = daysTo(n.due)
+    const c = chip(dueMode === 'rel' ? relDue(d) : 'exp ' + pretty(n.due),
+                   d < 7 ? 'heat-hot' : d < 30 ? 'heat-warm' : '')
+    c.dataset.tip = 'expected release \u00b7 click for ' + (dueMode === 'rel' ? 'the date' : 'days left')
+    c.style.cursor = 'pointer'
+    c.onclick = ev => { ev.stopPropagation()
+      dueMode = dueMode === 'rel' ? 'date' : 'rel'
+      localStorage.setItem('dueMode', dueMode)
+      drawQuads()
+    }
+  }
   if (meta.children.length) el.appendChild(meta)
   return el
 }
@@ -1875,9 +1900,11 @@ function drawQuads() {
   for (const cell of document.querySelectorAll('.qcell, #qtray')) {
     const body = cell.querySelector('.qbody')
     body.textContent = ''
-    const list = cell.id === 'qtray'
+    const list = (cell.id === 'qtray'
       ? live.filter(n => !(n.effort && n.impact))
-      : live.filter(n => n.effort === cell.dataset.e && n.impact === cell.dataset.i)
+      : live.filter(n => n.effort === cell.dataset.e && n.impact === cell.dataset.i))
+      .sort((a, b) => (a.due || '9999').localeCompare(b.due || '9999')
+                      || (b.createdAt || 0) - (a.createdAt || 0))
     if (cell.id === 'qtray') unrated = list.length
     for (const n of list) body.appendChild(qnoteEl(n))
   }
@@ -1900,21 +1927,26 @@ function addNote() {
     n.due = parseDMY($('noteDue').value) || ''
     n.updatedAt = Date.now()
   } else {
-    notes.unshift({ id: noteId(), text, type: $('noteType').value || '',
+    const fresh = { id: noteId(), text, type: $('noteType').value || '',
                     due: parseDMY($('noteDue').value) || '', done:false,
-                    createdAt: Date.now(), updatedAt: Date.now() })
+                    createdAt: Date.now(), updatedAt: Date.now() }
+    if (pendingQuad) { fresh.effort = pendingQuad.e; fresh.impact = pendingQuad.i }
+    notes.unshift(fresh)
   }
   ideaModal(false)
   saveNotes()
 }
 
-// one modal for both doors: n set = edit, n empty = a fresh plan
-function ideaModal(open, n) {
+// one modal for three doors: n set = edit, preset set = a fresh plan born on that quadrant
+let pendingQuad = null
+function ideaModal(open, n, preset) {
   $('ideaModal').hidden = !open
+  pendingQuad = open && !n ? (preset || null) : null
   if (!open) return
   fillNoteFields()
   editingId = n ? n.id : null
-  $('modalTitle').textContent = n ? 'Edit plan' : 'New plan'
+  $('modalTitle').textContent = n ? 'Edit plan'
+    : 'New plan' + (preset ? ' \u00b7 ' + QUAD_NAME[preset.e + preset.i] : '')
   $('noteAdd').textContent = n ? 'Save' : 'Add plan'
   $('noteText').value = n ? n.text : ''
   $('noteType').value = n ? (n.type || '') : ''
@@ -2687,6 +2719,10 @@ $('tabQuad').onclick = () => showTab(true)
 for (const cell of document.querySelectorAll('.qcell, #qtray')) {
   cell.ondragover = e => { e.preventDefault(); cell.classList.add('over') }
   cell.ondragleave = () => cell.classList.remove('over')
+  if (cell.id !== 'qtray') cell.onclick = ev => {
+    if (ev.target.closest('.qnote')) return      // a card click is the card's business
+    ideaModal(true, null, { e: cell.dataset.e, i: cell.dataset.i })
+  }
   cell.ondrop = e => {
     e.preventDefault()
     cell.classList.remove('over')
