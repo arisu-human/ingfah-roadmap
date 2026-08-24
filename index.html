@@ -207,6 +207,13 @@
   .toolrow { display:flex; align-items:center; flex-wrap:wrap; gap:10px 14px; margin-bottom:14px; }
   .toolrow b { font-size:15px; }
   /* notes: a pre-plan pile. Deliberately plainer than the chart, it is a scratchpad. */
+  #ideaModal { position:fixed; inset:0; background:rgba(24,29,38,.4); z-index:50;
+          display:flex; align-items:flex-start; justify-content:center; padding-top:14vh; }
+  #ideaModal[hidden] { display:none; }    /* display:flex would out-rank the hidden attribute */
+  .modalBox { background:var(--canvas); border:1px solid var(--hairline); border-radius:12px;
+          padding:16px; width:min(560px, 92vw); box-shadow:0 12px 32px rgba(24,29,38,.18); }
+  .noteFields input[type=date] { font:inherit; font-size:12px; color:var(--ink); padding:4px 8px;
+          border:1px solid var(--hairline); border-radius:6px; background:var(--canvas); }
   .sechead { font-size:11px; font-weight:500; letter-spacing:.8px; text-transform:uppercase;
           color:var(--soft-muted); margin:16px 0 6px; }
   .sechead:first-child { margin-top:0; }
@@ -499,36 +506,10 @@
   <div id="tl"></div>
 </div>
 
-<div class="card tabQ" id="notes" hidden>
-  <div class="toolrow">
-    <b>Ideas</b>
-    <span class="muted" id="noteCount"></span>
-    <span class="sep"></span>
-    <span class="muted" id="noteSync"></span>
-  </div>
-  <div class="sechead">New idea</div>
-  <div class="noteNew">
-    <textarea id="noteText" rows="2"
-      placeholder="An idea, a requirement, a thing to remember. First line is the title."></textarea>
-    <div class="noteFields">
-      <select id="noteType"></select>
-      <select id="noteMs"></select>
-      <button id="noteAdd" class="primary">Add note</button>
-    </div>
-  </div>
-  <div class="sechead" style="margin-top:18px">The pile</div>
-  <div id="noteList"></div>
-  <div class="toolrow" id="archBar" hidden
-       style="margin-top:16px;margin-bottom:0;border-top:1px solid var(--hairline);padding-top:14px">
-    <button id="archToggle"></button>
-    <button id="archClear">Clear archived</button>
-  </div>
-  <div id="archList" hidden></div>
-</div>
-
 <div class="card tabQ" id="quadCard" hidden>
   <div class="toolrow">
     <b>Priorities</b>
+    <button id="ideaNew" class="primary">+ Idea</button>
     <span class="muted" id="quadCount"></span>
     <span class="sep"></span>
     <span class="muted">Drag a note into a box. Back to the pile = not rated.</span>
@@ -547,6 +528,22 @@
   <div id="qtray"><div class="qhead">Not rated yet</div><div class="qbody"></div></div>
 </div>
 
+<div class="card tabQ" id="notes" hidden>
+  <div class="toolrow">
+    <b>Ideas</b>
+    <span class="muted" id="noteCount"></span>
+    <span class="sep"></span>
+    <span class="muted" id="noteSync"></span>
+  </div>
+  <div id="noteList"></div>
+  <div class="toolrow" id="archBar" hidden
+       style="margin-top:16px;margin-bottom:0;border-top:1px solid var(--hairline);padding-top:14px">
+    <button id="archToggle"></button>
+    <button id="archClear">Clear archived</button>
+  </div>
+  <div id="archList" hidden></div>
+</div>
+
 <div class="card tabR">
   <div class="toolrow">
     <input id="search" type="search" placeholder="Search milestone or card..." style="width:280px">
@@ -556,6 +553,21 @@
     <span id="statusKey" class="keys"></span>
   </div>
   <div id="tableBox"><table id="table"></table></div>
+</div>
+<div id="ideaModal" hidden>
+  <div class="modalBox">
+    <div class="toolrow"><b>New idea</b></div>
+    <div class="noteNew">
+      <textarea id="noteText" rows="3"
+        placeholder="An idea, a requirement, a thing to remember. First line is the title."></textarea>
+      <div class="noteFields">
+        <select id="noteType"></select>
+        <input id="noteDue" type="date" title="Expected release date">
+        <button id="noteAdd" class="primary">Add idea</button>
+        <button id="noteCancel">Cancel</button>
+      </div>
+    </div>
+  </div>
 </div>
 <div id="tip"></div>
 
@@ -1719,14 +1731,10 @@ async function syncNotes(quiet) {
 // the new-note row: type, repo and release are all optional, because a note that needs three
 // decisions before it can be written is a card, and cards are what this is not
 function fillNoteFields() {
-  const keep = { t:$('noteType').value, m:$('noteMs').value }
+  const keep = $('noteType').value
   $('noteType').innerHTML = NOTE_TYPES.map(t =>
     '<option value="' + (t === 'no type' ? '' : t) + '">' + t + '</option>').join('')
-  const open = rowsCache.filter(r => r.state !== 'closed')
-    .sort((a, b) => a.due.localeCompare(b.due))
-  $('noteMs').innerHTML = '<option value="">unplanned</option>'
-    + open.map(r => '<option value="' + esc(r.title) + '">' + esc(r.name) + '</option>').join('')
-  $('noteType').value = keep.t; $('noteMs').value = keep.m
+  $('noteType').value = keep
 }
 
 // GitHub's new-issue form takes title, body and milestone in the query string, so a note
@@ -1764,7 +1772,9 @@ function noteEl(n) {
   const chip = (text, cls) => { const c = elem('span', 'chip ' + (cls || '')); c.textContent = text
                                 meta.appendChild(c); return c }
   if (n.type) chip(n.type)
-  chip(n.ms ? cleanTitle(n.ms) : 'unplanned', n.ms ? 'pill upcoming' : '')
+  const when = n.ms ? cleanTitle(n.ms) : n.due ? 'exp ' + pretty(n.due) : 'unplanned'
+  const wc = chip(when, n.ms || n.due ? 'pill upcoming' : '')
+  if (n.due && !n.ms) wc.dataset.tip = 'expected release date'
   if (n.effort && n.impact) chip(QUAD_NAME[n.effort + n.impact])
   const age = chip(ideaAge(n.createdAt), 'pill closed')
   age.dataset.tip = 'here since ' + pretty(dayOf(n.createdAt || Date.now()))
@@ -1838,6 +1848,7 @@ function qnoteEl(n) {
   const chip = text => { const c = elem('span', 'chip'); c.textContent = text; meta.appendChild(c) }
   if (n.type) chip(n.type)
   if (n.ms) chip(cleanTitle(n.ms))
+  else if (n.due) chip('exp ' + pretty(n.due))
   if (meta.children.length) el.appendChild(meta)
   return el
 }
@@ -1863,10 +1874,19 @@ function addNote() {
   const text = $('noteText').value.trim()
   if (!text) return $('noteText').focus()
   notes.unshift({ id: noteId(), text, type: $('noteType').value || '',
-                  ms: $('noteMs').value || '', done:false, createdAt: Date.now(), updatedAt: Date.now() })
-  $('noteText').value = ''
-  $('noteMs').value = ''          // a release pinned to one note must not stick to the next
+                  due: $('noteDue').value || '', done:false,
+                  createdAt: Date.now(), updatedAt: Date.now() })
+  ideaModal(false)
   saveNotes()
+}
+
+function ideaModal(open) {
+  $('ideaModal').hidden = !open
+  if (!open) return
+  fillNoteFields()
+  $('noteText').value = ''
+  $('noteDue').value = ''       // a date picked for one idea must not stick to the next
+  $('noteText').focus()
 }
 
 /* ---- toast ---- */
@@ -2593,6 +2613,12 @@ $('table').addEventListener('click', e => {
 })
 
 $('noteAdd').onclick = addNote
+$('ideaNew').onclick = () => ideaModal(true)
+$('noteCancel').onclick = () => ideaModal(false)
+$('ideaModal').onclick = e => { if (e.target === $('ideaModal')) ideaModal(false) }
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape' && !$('ideaModal').hidden) ideaModal(false)
+})
 function showTab(quad) {
   document.querySelectorAll('.tabR').forEach(el => el.hidden = quad)
   document.querySelectorAll('.tabQ').forEach(el => el.hidden = !quad)
