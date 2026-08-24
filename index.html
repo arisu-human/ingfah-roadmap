@@ -1300,7 +1300,6 @@ function drawTimeline(rows) {
     timeline.on('changed', placeSprint)
     timeline.on('changed', dressAxis)
     timeline.on('changed', fitBars)
-    timeline.on('rangechange', fitBars)          // live while panning, or the strip lags
     addEventListener('resize', () => { lastSprintW = -1; placeSprint() })
     // vis measures the panel once, on construction. If the web font is still arriving, or the
     // container is laid out a frame later, it measures nothing and draws an empty chart that
@@ -1456,25 +1455,12 @@ function dressAxis() {
 // Every day gets its own grid line while there is room to print the number. Only when the
 // window is very wide do the lines drop back to one a week, then one a month.
 let axisScale = null
-/* The blocks are a count, not dates: nothing pins a card to a spot on the bar. So when a
-   bar runs past the window edge, the strip squeezes into the part of the bar on screen,
-   and every card stays visible. The clipped bar edge still says the release goes on. */
+// The strip spans the full bar, clipped or not: what the window cannot hold stays off
+// screen. Only the seams adapt: under 4px a card they eat the colour, so the strip goes
+// dense. The full count is always one hover away on the bar tooltip.
 function fitBars() {
-  const pane = document.querySelector('#tl .vis-panel.vis-center')
-  if (!pane) return
-  const pr = pane.getBoundingClientRect()
-  for (const w of document.querySelectorAll('#tl .blocks')) {
-    const item = w.closest('.vis-item')
-    if (!item) continue
-    const ir = item.getBoundingClientRect()
-    const lead = Math.max(0, pr.left - ir.left)
-    const tail = Math.max(0, ir.right - pr.right)
-    const seen = Math.max(0, ir.width - lead - tail)
-    if (lead || tail) { w.style.marginLeft = lead + 'px'; w.style.width = seen + 'px' }
-    else { w.style.marginLeft = ''; w.style.width = '' }
-    // under 4px a card the seams eat the colour: the strip goes dense
-    w.classList.toggle('dense', seen / Math.max(1, w.childElementCount) < 4)
-  }
+  for (const w of document.querySelectorAll('#tl .blocks'))
+    w.classList.toggle('dense', w.clientWidth / Math.max(1, w.childElementCount) < 4)
 }
 
 function tuneAxis() {
