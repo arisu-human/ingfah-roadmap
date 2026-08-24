@@ -248,12 +248,22 @@
   .quadGrid { display:grid; grid-template-columns:1fr 1fr; gap:10px; }
   .qcell, #qtray { border:1px solid var(--hairline); border-radius:10px; padding:10px;
           min-height:150px; background:var(--surface-soft); }
+  /* each priority wears its own weather: green go, blue invest, yellow spare time, grey no */
+  .qcell[data-e="fast"][data-i="high"] { background:#dafbe1; border-color:#aceebb; }
+  .qcell[data-e="fast"][data-i="high"] .qhead { color:#1a7f37; }
+  .qcell[data-e="slow"][data-i="high"] { background:#ddf4ff; border-color:#b6e3ff; }
+  .qcell[data-e="slow"][data-i="high"] .qhead { color:#0969da; }
+  .qcell[data-e="fast"][data-i="low"]  { background:#fff8c5; border-color:#fae17d; }
+  .qcell[data-e="fast"][data-i="low"]  .qhead { color:#9a6700; }
+  .qcell[data-e="slow"][data-i="low"]  { background:#eaeef2; border-color:#d0d7de; }
+  .qcell[data-e="slow"][data-i="low"]  .qhead { color:#57606a; }
+  .qbody { display:flex; flex-wrap:wrap; gap:8px; align-items:flex-start; margin-top:8px; }
   .qcell.over, #qtray.over { outline:2px solid var(--focus); outline-offset:-2px; }
   .qhead { font-size:12px; font-weight:500; color:var(--ink); }
   .qhead .muted { font-weight:400; margin-left:6px; }
   #qtray { margin-top:10px; min-height:56px; border-style:dashed; background:var(--canvas); }
   .qnote { background:var(--canvas); border:1px solid var(--hairline); border-radius:8px;
-          padding:6px 9px; margin-top:8px; cursor:grab; font-size:12px; }
+          padding:6px 9px; cursor:grab; font-size:12px; width:fit-content; max-width:100%; }
   .qnote:active { cursor:grabbing; }
   .qnote .title { color:var(--ink); font-weight:500; word-break:break-word; }
   .qnote .meta { display:flex; flex-wrap:wrap; gap:5px; margin-top:4px; }
@@ -452,7 +462,7 @@
   <h1>Release Planner</h1>
   <nav class="tabs">
     <button id="tabRel" class="on">Releases</button>
-    <button id="tabQuad">Ideas</button>
+    <button id="tabQuad">Plan</button>
   </nav>
   <span class="muted" id="stamp"></span>
   <button id="refresh">Refresh</button>
@@ -506,11 +516,11 @@
 
 <div class="card tabQ" id="quadCard" hidden>
   <div class="toolrow">
-    <b>Priorities</b>
-    <button id="ideaNew" class="primary">+ Idea</button>
+    <b>Plan</b>
+    <button id="ideaNew" class="primary">+ Plan</button>
     <span class="muted" id="quadCount"></span>
     <span class="sep"></span>
-    <span class="muted">Drag a note into a box. Back to the pile = not rated.</span>
+    <span class="muted" id="noteSync"></span>
   </div>
   <div class="quadCols"><span>Slow to build</span><span>Fast to build</span></div>
   <div class="quadGrid">
@@ -523,17 +533,7 @@
     <div class="qcell" data-e="fast" data-i="low">
       <div class="qhead">Fill-Ins<span class="muted">low impact, fast</span></div><div class="qbody"></div></div>
   </div>
-  <div id="qtray"><div class="qhead">Not rated yet</div><div class="qbody"></div></div>
-</div>
-
-<div class="card tabQ" id="notes" hidden>
-  <div class="toolrow">
-    <b>Ideas</b>
-    <span class="muted" id="noteCount"></span>
-    <span class="sep"></span>
-    <span class="muted" id="noteSync"></span>
-  </div>
-  <div id="noteList"></div>
+  <div id="qtray"><div class="qhead">Not rated yet<span class="muted">drag here to unrate</span></div><div class="qbody"></div></div>
   <div class="toolrow" id="archBar" hidden
        style="margin-top:16px;margin-bottom:0;border-top:1px solid var(--hairline);padding-top:14px">
     <button id="archToggle"></button>
@@ -554,14 +554,16 @@
 </div>
 <div id="ideaModal" hidden>
   <div class="modalBox">
-    <div class="toolrow"><b>New idea</b></div>
+    <div class="toolrow"><b id="modalTitle">New plan</b></div>
     <div class="noteNew">
       <textarea id="noteText" rows="3"
-        placeholder="An idea, a requirement, a thing to remember. First line is the title."></textarea>
+        placeholder="A plan, a requirement, a thing to remember. First line is the title."></textarea>
       <div class="noteFields">
         <select id="noteType"></select>
         <input id="noteDue" type="date" title="Expected release date">
-        <button id="noteAdd" class="primary">Add idea</button>
+        <button id="noteAdd" class="primary">Add plan</button>
+        <button id="noteOpen" hidden>To GitHub issue ↗</button>
+        <button id="noteArchive" hidden>Archive</button>
         <button id="noteCancel">Cancel</button>
       </div>
     </div>
@@ -1124,7 +1126,7 @@ function blocksEl(r, i) {
   for (const n of liveNotes()) {
     if (isArch(n) || n.ms !== r.title) continue
     const l = elem('i', 'idealine')
-    l.dataset.tip = '💡 ' + esc(noteTitle(n)) + '<br><i>idea, here ' + ideaAge(n.createdAt) + '</i>'
+    l.dataset.tip = '💡 ' + esc(noteTitle(n)) + '<br><i>plan, here ' + ideaAge(n.createdAt) + '</i>'
     wrap.appendChild(l)
   }
   for (const c of r.cards) {
@@ -1757,16 +1759,11 @@ const ideaAge = t => { const d = Math.floor((Date.now() - (t || Date.now())) / 8
   return d < 1 ? 'today' : d < 14 ? d + 'd' : d < 61 ? Math.floor(d / 7) + 'w'
        : Math.floor(d / 30.44) + 'mo' }
 
-function renameIdea(n) {
-  const text = prompt('Idea', n.text)
-  if (text == null) return
-  n.text = text; n.updatedAt = Date.now(); saveNotes()
-}
 
 function noteEl(n) {
   const el = elem('div', 'note' + (isArch(n) ? ' done' : ''))
   const body = elem('div', 'body')
-  const t = elem('div', 'title'); t.textContent = noteTitle(n) || '(empty idea)'
+  const t = elem('div', 'title'); t.textContent = noteTitle(n) || '(empty plan)'
   body.appendChild(t)
   if (noteRest(n)) { const r = elem('div', 'rest'); r.textContent = noteRest(n); body.appendChild(r) }
   const meta = elem('div', 'meta')
@@ -1787,19 +1784,12 @@ function noteEl(n) {
     const a = elem('span'); a.textContent = glyph; a.dataset.tip = tip; a.onclick = fn
     acts.appendChild(a)
   }
-  if (!isArch(n)) {
-    act('✎', 'Rename this idea', () => renameIdea(n))
-    act('↗', 'Open a new GitHub issue with this idea in it',
-      () => window.open(noteToCardUrl(n), '_blank', 'noopener'))
-    act('🗄', 'Archive it', () => { n.archived = true; n.updatedAt = Date.now(); saveNotes() })
-  } else {
-    act('↺', 'Put it back on the pile', () => {
-      n.archived = false; delete n.done; n.updatedAt = Date.now(); saveNotes() })
-    act('🗑', 'Delete it for good', () => {
-      if (!confirm('Delete this idea for good?\n\n' + noteTitle(n))) return
-      n.deleted = true; n.text = ''; n.updatedAt = Date.now(); saveNotes()
-    })
-  }
+  act('↺', 'Put it back on the board', () => {
+    n.archived = false; delete n.done; n.updatedAt = Date.now(); saveNotes() })
+  act('🗑', 'Delete it for good', () => {
+    if (!confirm('Delete this plan for good?\n\n' + noteTitle(n))) return
+    n.deleted = true; n.text = ''; n.updatedAt = Date.now(); saveNotes()
+  })
   el.append(body, acts)
   return el
 }
@@ -1807,19 +1797,7 @@ function noteEl(n) {
 let archOpen = false
 function drawNotes() {
   drawQuads()
-  const live = liveNotes()
-  const open = live.filter(n => !isArch(n))
-  const arch = live.filter(isArch)
-  $('noteCount').textContent = live.length
-    ? open.length + ' open' + (arch.length ? ' \u00b7 ' + arch.length + ' archived' : '') : ''
-  const box = $('noteList')
-  box.textContent = ''
-  for (const n of open) box.appendChild(noteEl(n))
-  if (!open.length) {
-    const p = elem('p', 'muted')
-    p.textContent = 'Nothing yet. Anything you would otherwise forget by tomorrow goes here.'
-    box.appendChild(p)
-  }
+  const arch = liveNotes().filter(isArch)
   $('archBar').hidden = !arch.length
   $('archToggle').textContent = (archOpen ? 'Hide archived' : 'Archived') + ' (' + arch.length + ')'
   const ab = $('archList')
@@ -1840,10 +1818,10 @@ function qnoteEl(n) {
   el.ondragstart = e => { e.dataTransfer.setData('text/plain', n.id)
                           e.dataTransfer.effectAllowed = 'move' }
   const pen = elem('span', 'acts'); pen.textContent = '\u270e'
-  pen.dataset.tip = 'Rename this idea'
-  pen.onclick = e => { e.stopPropagation(); renameIdea(n) }
+  pen.dataset.tip = 'Edit this plan'
+  pen.onclick = e => { e.stopPropagation(); ideaModal(true, n) }
   el.appendChild(pen)
-  const t = elem('div', 'title'); t.textContent = noteTitle(n) || '(empty idea)'
+  const t = elem('div', 'title'); t.textContent = noteTitle(n) || '(empty plan)'
   el.appendChild(t)
   const meta = elem('div', 'meta')
   const chip = text => { const c = elem('span', 'chip'); c.textContent = text; meta.appendChild(c) }
@@ -1869,24 +1847,42 @@ function drawQuads() {
   }
   $('quadCount').textContent = live.length
     ? live.length + ' open' + (unrated ? ' \u00b7 ' + unrated + ' not rated' : '') : ''
+  if (!live.length) {
+    const p = elem('p', 'muted')
+    p.textContent = 'Nothing yet. + Plan captures anything you would forget by tomorrow.'
+    document.querySelector('#qtray .qbody').appendChild(p)
+  }
 }
 
+let editingId = null
 function addNote() {
   const text = $('noteText').value.trim()
   if (!text) return $('noteText').focus()
-  notes.unshift({ id: noteId(), text, type: $('noteType').value || '',
-                  due: $('noteDue').value || '', done:false,
-                  createdAt: Date.now(), updatedAt: Date.now() })
+  const n = editingId && notes.find(x => x.id === editingId)
+  if (n) {
+    n.text = text; n.type = $('noteType').value || ''; n.due = $('noteDue').value || ''
+    n.updatedAt = Date.now()
+  } else {
+    notes.unshift({ id: noteId(), text, type: $('noteType').value || '',
+                    due: $('noteDue').value || '', done:false,
+                    createdAt: Date.now(), updatedAt: Date.now() })
+  }
   ideaModal(false)
   saveNotes()
 }
 
-function ideaModal(open) {
+// one modal for both doors: n set = edit, n empty = a fresh plan
+function ideaModal(open, n) {
   $('ideaModal').hidden = !open
   if (!open) return
   fillNoteFields()
-  $('noteText').value = ''
-  $('noteDue').value = ''       // a date picked for one idea must not stick to the next
+  editingId = n ? n.id : null
+  $('modalTitle').textContent = n ? 'Edit plan' : 'New plan'
+  $('noteAdd').textContent = n ? 'Save' : 'Add plan'
+  $('noteText').value = n ? n.text : ''
+  $('noteType').value = n ? (n.type || '') : ''
+  $('noteDue').value = n ? (n.due || '') : ''   // a date picked once must not stick to the next
+  $('noteOpen').hidden = $('noteArchive').hidden = !n
   $('noteText').focus()
 }
 
@@ -2616,6 +2612,17 @@ $('table').addEventListener('click', e => {
 $('noteAdd').onclick = addNote
 $('ideaNew').onclick = () => ideaModal(true)
 $('noteCancel').onclick = () => ideaModal(false)
+$('noteOpen').onclick = () => {
+  const n = editingId && notes.find(x => x.id === editingId)
+  if (n) window.open(noteToCardUrl(n), '_blank', 'noopener')
+}
+$('noteArchive').onclick = () => {
+  const n = editingId && notes.find(x => x.id === editingId)
+  if (!n) return
+  n.archived = true; n.updatedAt = Date.now()
+  ideaModal(false)
+  saveNotes()
+}
 $('ideaModal').onclick = e => { if (e.target === $('ideaModal')) ideaModal(false) }
 document.addEventListener('keydown', e => {
   if (e.key === 'Escape' && !$('ideaModal').hidden) ideaModal(false)
@@ -2634,7 +2641,7 @@ $('archToggle').onclick = () => { archOpen = !archOpen; drawNotes() }
 $('archClear').onclick = () => {
   const arch = liveNotes().filter(isArch)
   if (!arch.length) return
-  if (!confirm('Delete ' + arch.length + ' archived idea' + (arch.length > 1 ? 's' : '')
+  if (!confirm('Delete ' + arch.length + ' archived plan' + (arch.length > 1 ? 's' : '')
     + ' for good?')) return
   for (const n of arch) { n.deleted = true; n.text = ''; n.updatedAt = Date.now() }
   saveNotes()
