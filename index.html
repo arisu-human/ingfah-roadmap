@@ -271,10 +271,11 @@
   .qnote { background:var(--canvas); border:1px solid var(--hairline); border-radius:8px;
           padding:6px 9px; cursor:grab; font-size:12px; width:fit-content; max-width:100%; }
   .qnote:active { cursor:grabbing; }
-  .qadd { border:1px dashed var(--border-strong, #9297a0); border-radius:8px; padding:5px 10px;
-          font-size:12px; color:var(--soft-muted); cursor:pointer; background:transparent;
-          width:fit-content; }
-  .qadd:hover { color:var(--ink); border-color:var(--ink); background:var(--canvas); }
+  .qcell { position:relative; }
+  .qwm { position:absolute; inset:0; display:flex; align-items:center; justify-content:center;
+          font-size:30px; font-weight:600; letter-spacing:.5px; color:rgba(24,29,38,.10);
+          pointer-events:none; user-select:none; }
+  .qcell:hover .qwm { color:rgba(24,29,38,.20); }
   .qnote .title { color:var(--ink); font-weight:500; word-break:break-word; }
   .qnote .meta { display:flex; flex-wrap:wrap; gap:5px; margin-top:4px; }
   .qnote .chip { font-size:10px; padding:0 7px; }
@@ -541,13 +542,13 @@
   <div class="quadCols"><span>Slow to build</span><span>Fast to build</span></div>
   <div class="quadGrid">
     <div class="qcell" data-e="slow" data-i="high">
-      <div class="qhead">Major Projects<span class="muted">high impact, slow</span></div><div class="qbody"></div></div>
+      <div class="qhead">Major Projects<span class="muted">high impact, slow</span></div><div class="qwm">+ Plan</div><div class="qbody"></div></div>
     <div class="qcell" data-e="fast" data-i="high">
-      <div class="qhead">Quick Wins<span class="muted">high impact, fast</span></div><div class="qbody"></div></div>
+      <div class="qhead">Quick Wins<span class="muted">high impact, fast</span></div><div class="qwm">+ Plan</div><div class="qbody"></div></div>
     <div class="qcell" data-e="slow" data-i="low">
-      <div class="qhead">Deprioritize<span class="muted">low impact, slow</span></div><div class="qbody"></div></div>
+      <div class="qhead">Deprioritize<span class="muted">low impact, slow</span></div><div class="qwm">+ Plan</div><div class="qbody"></div></div>
     <div class="qcell" data-e="fast" data-i="low">
-      <div class="qhead">Fill-Ins<span class="muted">low impact, fast</span></div><div class="qbody"></div></div>
+      <div class="qhead">Fill-Ins<span class="muted">low impact, fast</span></div><div class="qwm">+ Plan</div><div class="qbody"></div></div>
   </div>
   <div id="qtray"><div class="qhead">Not rated yet<span class="muted">drag here to unrate</span></div><div class="qbody"></div></div>
   <div class="toolrow" id="archBar" hidden
@@ -1893,12 +1894,13 @@ function qnoteEl(n) {
                                 c.textContent = text; meta.appendChild(c); return c }
   if (n.type) chip(n.type)
   if (n.figma) {
-    const a = document.createElement('a')
+    const a = elem('span')
     a.textContent = '🎨'
-    a.href = n.figma; a.target = '_blank'; a.rel = 'noopener'
-    a.style.textDecoration = 'none'; a.style.fontSize = '12px'
-    a.dataset.tip = 'Open the Figma'
-    a.onclick = ev => ev.stopPropagation()
+    a.style.fontSize = '12px'; a.style.cursor = 'pointer'
+    a.dataset.tip = 'Copy the Figma link'
+    a.onclick = ev => { ev.stopPropagation()
+      navigator.clipboard.writeText(n.figma).then(() => toast('Figma link copied'))
+    }
     meta.appendChild(a)
   }
   if (n.ms) chip(cleanTitle(n.ms))
@@ -1932,11 +1934,6 @@ function drawQuads() {
                       || (b.createdAt || 0) - (a.createdAt || 0))
     if (cell.id === 'qtray') unrated = list.length
     for (const n of list) body.appendChild(qnoteEl(n))
-    if (cell.id !== 'qtray') {
-      const add = elem('span', 'qadd')
-      add.textContent = '+ Plan'
-      body.appendChild(add)          // the cell's own click handler does the rest
-    }
   }
   $('quadCount').textContent = live.length
     ? live.length + ' open' + (unrated ? ' \u00b7 ' + unrated + ' not rated' : '') : ''
@@ -2744,10 +2741,14 @@ function showTab(quad) {
   document.querySelectorAll('.tabQ').forEach(el => el.hidden = !quad)
   $('tabRel').classList.toggle('on', !quad)
   $('tabQuad').classList.toggle('on', quad)
+  const u = new URL(location)                 // a refresh lands on the same tab
+  u.searchParams.set('tab', quad ? 'plan' : 'release')
+  history.replaceState(null, '', u)
   if (quad) drawQuads()
   // vis sizes itself against a hidden box as zero, so coming back needs a redraw
   else if (timeline) timeline.redraw()
 }
+if (new URLSearchParams(location.search).get('tab') === 'plan') showTab(true)
 $('tabRel').onclick = () => showTab(false)
 $('archToggle').onclick = () => { archOpen = !archOpen; drawNotes() }
 $('archClear').onclick = () => {
