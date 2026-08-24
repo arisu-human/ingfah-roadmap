@@ -579,6 +579,8 @@
         <button type="button" class="qk" data-d="14">next 14d</button>
         <button type="button" class="qk" data-d="30">next 30d</button>
       </div>
+      <input id="noteFigma" type="url" placeholder="Figma URL (optional)"
+             style="width:100%;margin-top:8px;font-size:12px">
       <input id="dueSlider" type="range" min="0" max="90" step="1" value="0">
       <div class="sliderScale"><span>today</span><span>30d</span><span>60d</span><span>90d</span></div>
       <div class="noteFields">
@@ -1800,8 +1802,8 @@ function fillNoteFields() {
 function noteToCardUrl(n) {
   const repo = n.repo || NOTES_REPO
   const p = new URLSearchParams({ title: noteTitle(n) })
-  const body = noteRest(n)
-  if (body) p.set('body', body)
+  const body = noteRest(n) + (n.figma ? '\n\nFigma: ' + n.figma : '')
+  if (body.trim()) p.set('body', body.trim())
   if (n.ms) p.set('milestone', n.ms)
   return 'https://github.com/' + OWNER + '/' + repo + '/issues/new?' + p
 }
@@ -1886,6 +1888,14 @@ function qnoteEl(n) {
   const chip = (text, cls) => { const c = elem('span', 'chip' + (cls ? ' ' + cls : ''))
                                 c.textContent = text; meta.appendChild(c); return c }
   if (n.type) chip(n.type)
+  if (n.figma) {
+    const a = document.createElement('a')
+    a.className = 'chip'; a.textContent = '🎨 Figma'
+    a.href = n.figma; a.target = '_blank'; a.rel = 'noopener'
+    a.style.textDecoration = 'none'
+    a.onclick = ev => ev.stopPropagation()
+    meta.appendChild(a)
+  }
   if (n.ms) chip(cleanTitle(n.ms))
   else if (n.due) {
     const d = daysTo(n.due)
@@ -1935,11 +1945,12 @@ function addNote() {
   if (n) {
     n.text = text; n.type = $('noteType').value || ''
     n.due = parseDMY($('noteDue').value) || ''
+    n.figma = $('noteFigma').value.trim()
     n.updatedAt = Date.now()
   } else {
     const fresh = { id: noteId(), text, type: $('noteType').value || '',
-                    due: parseDMY($('noteDue').value) || '', done:false,
-                    createdAt: Date.now(), updatedAt: Date.now() }
+                    due: parseDMY($('noteDue').value) || '', figma: $('noteFigma').value.trim(),
+                    done:false, createdAt: Date.now(), updatedAt: Date.now() }
     if (pendingQuad) { fresh.effort = pendingQuad.e; fresh.impact = pendingQuad.i }
     notes.unshift(fresh)
   }
@@ -1960,6 +1971,7 @@ function ideaModal(open, n, preset) {
   $('noteAdd').textContent = n ? 'Save' : 'Add plan'
   $('noteText').value = n ? n.text : ''
   $('noteType').value = n ? (n.type || '') : ''
+  $('noteFigma').value = n ? (n.figma || '') : ''
   $('noteDue').value = n ? toDMY(n.due) : ''    // a date picked once must not stick to the next
   $('dueSlider').value = n && n.due ? Math.max(0, Math.min(90, daysTo(n.due))) : 0
   $('noteOpen').hidden = $('noteArchive').hidden = !n
