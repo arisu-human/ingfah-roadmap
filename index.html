@@ -211,7 +211,15 @@
   .modalBox { background:var(--canvas); border:1px solid var(--hairline); border-radius:12px;
           padding:16px; width:min(560px, 92vw); box-shadow:0 12px 32px rgba(24,29,38,.18); }
   .noteFields .qk { font-size:12px; padding:3px 9px; border-radius:9999px; }
-  #dueSlider { width:100%; margin:10px 0 0; accent-color:var(--ink); }
+  #dueSlider { width:100%; margin:10px 0 0; -webkit-appearance:none; appearance:none;
+          height:8px; border-radius:4px; background:#eef1f4; outline:none;
+          cursor:pointer; }
+  #dueSlider::-webkit-slider-thumb { -webkit-appearance:none; width:16px; height:16px;
+          border-radius:50%; background:var(--ink); border:2px solid #fff;
+          box-shadow:0 1px 3px rgba(0,0,0,.35); cursor:grab; }
+  #dueSlider::-moz-range-thumb { width:14px; height:14px; border-radius:50%;
+          background:var(--ink); border:2px solid #fff; cursor:grab; }
+  .chip.tagpill { border:none; border-radius:9999px; }
   .sliderScale { display:flex; justify-content:space-between; font-size:10px;
           color:var(--soft-muted); margin-top:2px; }
   .sechead { font-size:11px; font-weight:500; letter-spacing:.8px; text-transform:uppercase;
@@ -245,8 +253,32 @@
   .tabs button:hover { background:none; color:var(--ink); }
   .tabs button.on { color:var(--ink); border-bottom-color:var(--ink); }
   /* priorities: four boxes, effort across, impact down */
-  .quadCols { display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-bottom:6px;
-          font-size:12px; color:var(--muted); text-align:center; }
+  .quadWrap { display:grid; grid-template-columns:18px 1fr; gap:8px; }
+  .axisX { display:flex; align-items:center; gap:8px; font-size:11px; color:var(--muted);
+          margin-bottom:6px; }
+  .axisX .hline { flex:1; height:0; border-top:1.5px solid var(--soft-muted); position:relative; }
+  .axisX .hline::after { content:''; position:absolute; right:-1px; top:-4.5px;
+          border:4px solid transparent; border-left:7px solid var(--soft-muted); }
+  .axisY { display:flex; flex-direction:column; align-items:center; font-size:11px;
+          color:var(--muted); padding-top:24px; }
+  .axisY span { writing-mode:vertical-rl; transform:rotate(180deg); letter-spacing:.4px; }
+  .axisY .vline { flex:1; width:0; border-left:1.5px solid var(--soft-muted); margin:8px 0;
+          position:relative; }
+  .axisY .vline::before { content:''; position:absolute; top:-1px; left:-5px;
+          border:4px solid transparent; border-bottom:7px solid var(--soft-muted); }
+  /* the next 90 days on one line, expected dates flying their flags */
+  #planline { position:relative; height:36px; margin:2px 0 14px; }
+  #planline::before { content:''; position:absolute; left:0; right:0; top:24px;
+          border-top:1.5px solid var(--soft-muted); }
+  #planline .pl-today, #planline .pl-end { position:absolute; top:28px; font-size:10px;
+          color:var(--soft-muted); }
+  #planline .pl-today { left:0; } #planline .pl-end { right:0; }
+  #planline .plflag { position:absolute; top:4px; transform:translateX(-50%); font-size:13px;
+          cursor:default; }
+  #planline .plflag.late { filter:grayscale(1); }
+  #planline .pltick { position:absolute; top:20px; height:9px; border-left:1px solid var(--hairline); }
+  #planline .pltick b { position:absolute; top:9px; left:-8px; font-size:9px; font-weight:400;
+          color:var(--soft-muted); }
   .quadGrid { display:grid; grid-template-columns:1fr 1fr; gap:10px; }
   .qcell, #qtray { border:1px solid var(--hairline); border-radius:10px; padding:10px;
           min-height:150px; background:var(--surface-soft); }
@@ -274,7 +306,8 @@
   .qcell { position:relative; }
   .qwm { position:absolute; inset:0; display:flex; align-items:center; justify-content:center;
           font-size:30px; font-weight:600; letter-spacing:.5px; color:rgba(24,29,38,.10);
-          pointer-events:none; user-select:none; }
+          pointer-events:none; user-select:none; z-index:0; }
+  .qbody { position:relative; z-index:1; }
   .qcell:hover .qwm { color:rgba(24,29,38,.20); }
   .qnote .title { color:var(--ink); font-weight:500; word-break:break-word; }
   .qnote .meta { display:flex; flex-wrap:wrap; gap:5px; margin-top:4px; }
@@ -539,8 +572,12 @@
     <span class="muted" id="noteSync"></span>
     <button id="ideaNew" class="primary" style="margin-left:auto">+ Plan</button>
   </div>
-  <div class="quadCols"><span>Slow to build</span><span>Fast to build</span></div>
-  <div class="quadGrid">
+  <div id="planline"><span class="pl-today">today</span><span class="pl-end">90d</span></div>
+  <div class="quadWrap">
+    <div class="axisY"><span>high impact</span><i class="vline"></i><span>low impact</span></div>
+    <div>
+      <div class="axisX"><span>slow build</span><i class="hline"></i><span>fast build</span></div>
+      <div class="quadGrid">
     <div class="qcell" data-e="slow" data-i="high">
       <div class="qhead">Major Projects<span class="muted">high impact, slow</span></div><div class="qwm">+ Plan</div><div class="qbody"></div></div>
     <div class="qcell" data-e="fast" data-i="high">
@@ -549,6 +586,8 @@
       <div class="qhead">Deprioritize<span class="muted">low impact, slow</span></div><div class="qwm">+ Plan</div><div class="qbody"></div></div>
     <div class="qcell" data-e="fast" data-i="low">
       <div class="qhead">Fill-Ins<span class="muted">low impact, fast</span></div><div class="qwm">+ Plan</div><div class="qbody"></div></div>
+      </div>
+    </div>
   </div>
   <div id="qtray"><div class="qhead">Not rated yet<span class="muted">drag here to unrate</span></div><div class="qbody"></div></div>
   <div class="toolrow" id="archBar" hidden
@@ -1713,9 +1752,16 @@ function saveNotes(push = true) {
   notesPush = setTimeout(syncNotes, 2000)          // typing must never wait on GitHub
 }
 
-function noteSyncSays(text, bad) {
+function noteSyncSays(text, bad, url) {
   const el = $('noteSync')
-  el.textContent = text
+  el.textContent = ''
+  if (url) {
+    const a = document.createElement('a')
+    a.href = url; a.target = '_blank'; a.rel = 'noopener'
+    a.textContent = text
+    a.style.color = 'inherit'
+    el.appendChild(a)
+  } else el.textContent = text
   el.className = bad ? 'err' : 'muted'
 }
 
@@ -1785,7 +1831,8 @@ async function syncNotes(quiet) {
       if (!w.ok) throw new Error('saving the notes issue: HTTP ' + w.status)
     }
     notesDirty = false
-    noteSyncSays('saved to ' + NOTES_REPO + ' #' + num)
+    noteSyncSays('saved to ' + NOTES_REPO + ' #' + num, false,
+      'https://github.com/' + OWNER + '/' + NOTES_REPO + '/issues/' + num)
   } catch (e) {
     noteSyncSays(e.message + ' · kept in this browser', true)
     if (!quiet) toast('Notes: ' + e.message, 'err')
@@ -1874,6 +1921,8 @@ function drawNotes() {
    browser sees the same board. Done and deleted notes leave the board on their own. */
 const QUAD_NAME = { fasthigh:'Quick Wins', slowhigh:'Major Projects', fastlow:'Fill-Ins', slowlow:'Deprioritize' }
 let dueMode = localStorage.getItem('dueMode') || 'date'   // 'date' = 28 Aug, 'rel' = 4d
+const TAG_TONE = { 'Feature':['#ddf4ff','#0969da'], 'Client Request':['#fbefff','#8250df'],
+                   'Earth Request':['#dafbe1','#1a7f37'], 'Boss Request':['#ffebe9','#cf222e'] }
 const daysTo = iso => Math.ceil((bkk(iso) - Date.now()) / 864e5)
 const relDue = d => d < 0 ? Math.abs(d) + 'd late' : d === 0 ? 'today'
   : d < 7 ? d + 'd' : d < 28 ? Math.floor(d / 7) + 'w' : '>4w'
@@ -1881,6 +1930,7 @@ const relDue = d => d < 0 ? Math.abs(d) + 'd late' : d === 0 ? 'today'
 function qnoteEl(n) {
   const el = elem('div', 'qnote')
   el.draggable = true
+  el.ondblclick = ev => { ev.stopPropagation(); ideaModal(true, n) }
   el.ondragstart = e => { e.dataTransfer.setData('text/plain', n.id)
                           e.dataTransfer.effectAllowed = 'move' }
   const pen = elem('span', 'acts'); pen.textContent = '\u270e'
@@ -1892,7 +1942,11 @@ function qnoteEl(n) {
   const meta = elem('div', 'meta')
   const chip = (text, cls) => { const c = elem('span', 'chip' + (cls ? ' ' + cls : ''))
                                 c.textContent = text; meta.appendChild(c); return c }
-  if (n.type) chip(n.type)
+  if (n.type) {
+    const c = chip(n.type, 'tagpill')
+    const tone = TAG_TONE[n.type]
+    if (tone) { c.style.background = tone[0]; c.style.color = tone[1] }
+  }
   if (n.figma) {
     const a = elem('span')
     a.textContent = '🎨'
@@ -1920,8 +1974,35 @@ function qnoteEl(n) {
   return el
 }
 
+function drawPlanline() {
+  const box = $('planline')
+  if (!box) return
+  for (const el of box.querySelectorAll('.plflag, .pltick')) el.remove()
+  for (const m of [30, 60]) {                    // month-ish ticks keep the eye calibrated
+    const t = elem('i', 'pltick'); t.style.left = (m / 90 * 100) + '%'
+    const b = elem('b'); b.textContent = m + 'd'; t.appendChild(b)
+    box.appendChild(t)
+  }
+  const by = new Map()
+  for (const n of liveNotes()) {
+    if (isArch(n) || !n.due) continue
+    const d = Math.max(0, Math.min(90, daysTo(n.due)))
+    if (!by.has(d)) by.set(d, { late: daysTo(n.due) < 0, list: [] })
+    by.get(d).list.push(n)
+  }
+  for (const [d, g] of by) {
+    const f = elem('span', 'plflag' + (g.late ? ' late' : ''))
+    f.textContent = '🚩'
+    f.style.left = (d / 90 * 100) + '%'
+    f.dataset.tip = '<b>' + (g.late ? 'late' : 'exp ' + pretty(dayOf(Date.now() + d * 864e5)))
+      + '</b><br>' + g.list.map(n => esc(noteTitle(n))).join('<br>')
+    box.appendChild(f)
+  }
+}
+
 function drawQuads() {
   if (!$('quadCard')) return
+  drawPlanline()
   const live = liveNotes().filter(n => !isArch(n))
   let unrated = 0
   for (const cell of document.querySelectorAll('.qcell, #qtray')) {
@@ -1965,6 +2046,20 @@ function addNote() {
   saveNotes()
 }
 
+// Sat and Sun wear grey blocks on the slider track, repainted per open since today moves
+function paintSlider() {
+  const seg = []
+  for (let i = 0; i <= 90; i++) {
+    const wd = new Date(dayOf(Date.now() + i * 864e5) + 'T00:00:00Z').getUTCDay()
+    if (wd === 0 || wd === 6) {
+      const a = (i / 91 * 100).toFixed(2), b = ((i + 1) / 91 * 100).toFixed(2)
+      seg.push('transparent ' + a + '%, #c7cdd4 ' + a + '%, #c7cdd4 ' + b + '%, transparent ' + b + '%')
+    }
+  }
+  $('dueSlider').style.background = 'linear-gradient(90deg, ' + seg.join(', ') + '), #eef1f4'
+  $('dueSlider').title = 'grey blocks = weekend'
+}
+
 // one modal for three doors: n set = edit, preset set = a fresh plan born on that quadrant
 let pendingQuad = null
 function ideaModal(open, n, preset) {
@@ -1972,6 +2067,7 @@ function ideaModal(open, n, preset) {
   pendingQuad = open && !n ? (preset || null) : null
   if (!open) return
   fillNoteFields()
+  paintSlider()
   editingId = n ? n.id : null
   $('modalTitle').textContent = n ? 'Edit plan'
     : 'New plan' + (preset ? ' \u00b7 ' + QUAD_NAME[preset.e + preset.i] : '')
