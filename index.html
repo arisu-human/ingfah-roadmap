@@ -274,7 +274,9 @@
           color:var(--soft-muted); }
   #planline .pl-today { left:0; } #planline .pl-end { right:0; }
   #planline .plflag { position:absolute; top:4px; transform:translateX(-50%); font-size:13px;
-          cursor:default; }
+          cursor:grab; touch-action:none; }
+  #planline .plflag:active { cursor:grabbing; }
+  .qnote.lit { outline:2px solid #8250df; outline-offset:-1px; }
   #planline .plflag.late { filter:grayscale(1); }
   #planline .pltick { position:absolute; top:20px; height:9px; border-left:1px solid var(--hairline); }
   #planline .pltick b { position:absolute; top:9px; left:-8px; font-size:9px; font-weight:400;
@@ -1930,6 +1932,7 @@ const relDue = d => d < 0 ? Math.abs(d) + 'd late' : d === 0 ? 'today'
 
 function qnoteEl(n) {
   const el = elem('div', 'qnote')
+  el.dataset.nid = n.id
   el.draggable = true
   el.ondblclick = ev => { ev.stopPropagation(); ideaModal(true, n) }
   el.ondragstart = e => { e.dataTransfer.setData('text/plain', n.id)
@@ -2005,6 +2008,35 @@ function drawPlanline() {
     f.style.left = (d / 90 * 100) + '%'
     f.dataset.tip = '<b>' + (g.late ? 'late' : 'exp ' + pretty(dayOf(Date.now() + d * 864e5)))
       + '</b><br>' + g.list.map(n => esc(noteTitle(n))).join('<br>')
+    // hovering the flag lights its cards on the board below
+    f.onmouseenter = () => { for (const n of g.list) {
+      const c = document.querySelector('.qnote[data-nid="' + n.id + '"]')
+      if (c) c.classList.add('lit') } }
+    f.onmouseleave = () => { for (const c of document.querySelectorAll('.qnote.lit'))
+      c.classList.remove('lit') }
+    // dragging the flag moves the expected date of every plan on it, snapped to days
+    f.onpointerdown = e => {
+      e.preventDefault()
+      f.setPointerCapture(e.pointerId)
+      const r = box.getBoundingClientRect()
+      let nd = d
+      const mv = ev => {
+        nd = Math.max(0, Math.min(90, Math.round((ev.clientX - r.left) / r.width * 90)))
+        f.style.left = (nd / 90 * 100) + '%'
+        f.dataset.tip = '<b>exp ' + pretty(dayOf(Date.now() + nd * 864e5)) + '</b><br>'
+          + g.list.map(n => esc(noteTitle(n))).join('<br>')
+      }
+      const up = () => {
+        f.removeEventListener('pointermove', mv)
+        f.removeEventListener('pointerup', up)
+        if (nd === d) return
+        const iso = dayOf(Date.now() + nd * 864e5)
+        for (const n of g.list) { n.due = iso; n.updatedAt = Date.now() }
+        saveNotes()
+      }
+      f.addEventListener('pointermove', mv)
+      f.addEventListener('pointerup', up)
+    }
     box.appendChild(f)
   }
 }
