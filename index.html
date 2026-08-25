@@ -279,6 +279,7 @@
   #planline .pltick { position:absolute; top:20px; height:9px; border-left:1px solid var(--hairline); }
   #planline .pltick b { position:absolute; top:9px; left:-8px; font-size:9px; font-weight:400;
           color:var(--soft-muted); }
+  #planline .plwe { position:absolute; top:21px; height:7px; background:#dfe4e9; }
   .quadGrid { display:grid; grid-template-columns:1fr 1fr; gap:10px; }
   .qcell, #qtray { border:1px solid var(--hairline); border-radius:10px; padding:10px;
           min-height:150px; background:var(--surface-soft); }
@@ -625,8 +626,8 @@
         <button type="button" class="qk" data-d="14">next 14d</button>
         <button type="button" class="qk" data-d="30">next 30d</button>
       </div>
-      <input id="dueSlider" type="range" min="0" max="90" step="1" value="0">
-      <div class="sliderScale"><span>today</span><span>30d</span><span>60d</span><span>90d</span></div>
+      <input id="dueSlider" type="range" min="0" max="60" step="1" value="0">
+      <div class="sliderScale"><span>today</span><span>15d</span><span>30d</span><span>45d</span><span>60d</span></div>
       <div class="noteFields">
         <button id="noteAdd" class="primary">Add plan</button>
         <button id="noteOpen" hidden>To GitHub issue ↗</button>
@@ -1977,7 +1978,15 @@ function qnoteEl(n) {
 function drawPlanline() {
   const box = $('planline')
   if (!box) return
-  for (const el of box.querySelectorAll('.plflag, .pltick')) el.remove()
+  for (const el of box.querySelectorAll('.plflag, .pltick, .plwe')) el.remove()
+  for (let i = 0; i < 90; i++) {                 // weekends shade the line like the slider
+    const wd = new Date(dayOf(Date.now() + i * 864e5) + 'T00:00:00Z').getUTCDay()
+    if (wd !== 0 && wd !== 6) continue
+    const we = elem('i', 'plwe')
+    we.style.left = (i / 90 * 100) + '%'
+    we.style.width = (100 / 90) + '%'
+    box.appendChild(we)
+  }
   for (const m of [30, 60]) {                    // month-ish ticks keep the eye calibrated
     const t = elem('i', 'pltick'); t.style.left = (m / 90 * 100) + '%'
     const b = elem('b'); b.textContent = m + 'd'; t.appendChild(b)
@@ -2049,10 +2058,10 @@ function addNote() {
 // Sat and Sun wear grey blocks on the slider track, repainted per open since today moves
 function paintSlider() {
   const seg = []
-  for (let i = 0; i <= 90; i++) {
+  for (let i = 0; i <= 60; i++) {
     const wd = new Date(dayOf(Date.now() + i * 864e5) + 'T00:00:00Z').getUTCDay()
     if (wd === 0 || wd === 6) {
-      const a = (i / 91 * 100).toFixed(2), b = ((i + 1) / 91 * 100).toFixed(2)
+      const a = (i / 61 * 100).toFixed(2), b = ((i + 1) / 61 * 100).toFixed(2)
       seg.push('transparent ' + a + '%, #c7cdd4 ' + a + '%, #c7cdd4 ' + b + '%, transparent ' + b + '%')
     }
   }
@@ -2076,7 +2085,7 @@ function ideaModal(open, n, preset) {
   $('noteType').value = n ? (n.type || '') : ''
   $('noteFigma').value = n ? (n.figma || '') : ''
   $('noteDue').value = n ? toDMY(n.due) : ''    // a date picked once must not stick to the next
-  $('dueSlider').value = n && n.due ? Math.max(0, Math.min(90, daysTo(n.due))) : 0
+  $('dueSlider').value = n && n.due ? Math.max(0, Math.min(60, daysTo(n.due))) : 0
   $('noteOpen').hidden = $('noteArchive').hidden = !n
   $('noteText').focus()
 }
@@ -2809,13 +2818,13 @@ $('ideaNew').onclick = () => ideaModal(true)
 $('noteCancel').onclick = () => ideaModal(false)
 const setPlanDue = d => {
   $('noteDue').value = toDMY(dayOf(Date.now() + d * 864e5))
-  $('dueSlider').value = Math.max(0, Math.min(90, d))
+  $('dueSlider').value = Math.max(0, Math.min(60, d))
 }
 document.querySelectorAll('.qk').forEach(b => { b.onclick = () => setPlanDue(+b.dataset.d) })
 $('dueSlider').oninput = () => setPlanDue(+$('dueSlider').value)
 $('noteDue').oninput = () => {
   const iso = parseDMY($('noteDue').value)
-  $('dueSlider').value = iso ? Math.max(0, Math.min(90, daysTo(iso))) : 0
+  $('dueSlider').value = iso ? Math.max(0, Math.min(60, daysTo(iso))) : 0
 }
 $('noteOpen').onclick = () => {
   const n = editingId && notes.find(x => x.id === editingId)
