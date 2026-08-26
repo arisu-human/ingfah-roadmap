@@ -318,6 +318,20 @@
   .qnote .acts { float:right; margin-left:6px; cursor:pointer; color:var(--soft-muted);
           font-size:12px; display:inline-block; transform:scaleX(-1); }
   .qnote .acts:hover { color:var(--ink); }
+  /* the right lane: what Eddie owes himself, next to the board but never on it */
+  .planCols { display:flex; gap:12px; align-items:stretch; }
+  .planMain { flex:1; min-width:0; }
+  #myLane { flex:0 0 250px; display:flex; flex-direction:column; padding:10px;
+          border:1px solid var(--hairline); border-radius:10px; background:var(--canvas); }
+  #myLane.over { outline:2px solid var(--focus); outline-offset:-2px; }
+  #myLane .qhead { flex:0 0 auto; }
+  #myAdd { width:100%; margin:8px 0 0; font-size:12px; }
+  #myLane .qbody { flex:1 1 auto; flex-direction:column; flex-wrap:nowrap; align-items:stretch;
+          overflow-y:auto; gap:6px; }
+  #myLane .qnote { width:auto; }
+  #myLane .qnote .acts.tick { transform:none; font-size:13px; }
+  @media (max-width:900px) { .planCols { flex-direction:column; }
+          #myLane { flex:0 0 auto; max-height:320px; } }
   /* a plan's expected release date: a flag on the chart at that day, names on hover */
   #flags { position:absolute; inset:0; overflow:hidden; z-index:4; pointer-events:none; }
   #flags .flagline { position:absolute; top:0; bottom:0; width:0;
@@ -576,6 +590,8 @@
     <button id="ideaNew" class="primary" style="margin-left:auto">+ Plan</button>
   </div>
   <div id="planline"><span class="pl-today">today</span><span class="pl-end">90d</span></div>
+  <div class="planCols">
+   <div class="planMain">
   <div class="quadWrap">
     <div class="axisY"><span>high impact</span><i class="vline"></i><span>low impact</span></div>
     <div>
@@ -593,6 +609,13 @@
     </div>
   </div>
   <div id="qtray"><div class="qhead">Not rated yet<span class="muted">drag here to unrate</span></div><div class="qbody"></div></div>
+   </div>
+   <aside id="myLane">
+     <div class="qhead">My tasks<span class="muted" id="myCount">out of sprint</span></div>
+     <input id="myAdd" type="text" placeholder="A task of mine. Enter adds it.">
+     <div class="qbody"></div>
+   </aside>
+  </div>
   <div class="toolrow" id="archBar" hidden
        style="margin-top:16px;margin-bottom:0;border-top:1px solid var(--hairline);padding-top:14px">
     <button id="archToggle"></button>
@@ -1978,6 +2001,38 @@ function qnoteEl(n) {
   return el
 }
 
+/* ---- my lane: tasks that are mine, not the sprint's -------------------------------
+   Same note, same sync, one flag: lane 'me' keeps it beside the board instead of on it.
+   Dragging a card in or out is the only thing that sets or clears the flag, so a plan can
+   become my task and back without being retyped. */
+function myNoteEl(n) {
+  const el = qnoteEl(n)
+  const tick = elem('span', 'acts tick')
+  tick.textContent = '\u2610'
+  tick.dataset.tip = 'Mark it done'
+  tick.onclick = e => { e.stopPropagation()
+    n.done = true; n.updatedAt = Date.now(); saveNotes() }
+  el.insertBefore(tick, el.firstChild)
+  return el
+}
+
+function drawLane(list) {
+  const box = document.querySelector('#myLane .qbody')
+  if (!box) return
+  box.textContent = ''
+  $('myCount').textContent = list.length ? list.length + ' open' : 'out of sprint'
+  if (!list.length) {
+    const p = elem('p', 'muted')
+    p.style.fontSize = '12px'
+    p.textContent = 'Nothing of mine. Type above, or drag a card in.'
+    box.appendChild(p)
+    return
+  }
+  for (const n of list.sort((a, b) => (a.due || '9999').localeCompare(b.due || '9999')
+                                      || (b.createdAt || 0) - (a.createdAt || 0)))
+    box.appendChild(myNoteEl(n))
+}
+
 function drawPlanline() {
   const box = $('planline')
   if (!box) return
@@ -2044,7 +2099,9 @@ function drawPlanline() {
 function drawQuads() {
   if (!$('quadCard')) return
   drawPlanline()
-  const live = liveNotes().filter(n => !isArch(n))
+  const all = liveNotes().filter(n => !isArch(n))
+  const live = all.filter(n => n.lane !== 'me')
+  drawLane(all.filter(n => n.lane === 'me'))
   let unrated = 0
   for (const cell of document.querySelectorAll('.qcell, #qtray')) {
     const body = cell.querySelector('.qbody')
@@ -2897,10 +2954,10 @@ $('archClear').onclick = () => {
   saveNotes()
 }
 $('tabQuad').onclick = () => showTab(true)
-for (const cell of document.querySelectorAll('.qcell, #qtray')) {
+for (const cell of document.querySelectorAll('.qcell, #qtray, #myLane')) {
   cell.ondragover = e => { e.preventDefault(); cell.classList.add('over') }
   cell.ondragleave = () => cell.classList.remove('over')
-  if (cell.id !== 'qtray') cell.onclick = ev => {
+  if (cell.id !== 'qtray' && cell.id !== 'myLane') cell.onclick = ev => {
     if (ev.target.closest('.qnote')) return      // a card click is the card's business
     ideaModal(true, null, { e: cell.dataset.e, i: cell.dataset.i })
   }
@@ -2909,12 +2966,24 @@ for (const cell of document.querySelectorAll('.qcell, #qtray')) {
     cell.classList.remove('over')
     const n = notes.find(x => x.id === e.dataTransfer.getData('text/plain'))
     if (!n) return
-    if (cell.id === 'qtray') { delete n.effort; delete n.impact }
-    else { n.effort = cell.dataset.e; n.impact = cell.dataset.i }
+    if (cell.id === 'myLane') { n.lane = 'me'; delete n.effort; delete n.impact }
+    else if (cell.id === 'qtray') { delete n.lane; delete n.effort; delete n.impact }
+    else { delete n.lane; n.effort = cell.dataset.e; n.impact = cell.dataset.i }
     n.updatedAt = Date.now()
     saveNotes()
   }
 }
+// my lane takes one line and nothing else: a task of mine costs an Enter
+$('myAdd').onkeydown = e => {
+  if (e.key !== 'Enter') return
+  const text = $('myAdd').value.trim()
+  if (!text) return
+  notes.unshift({ id: noteId(), text, type:'', due:'', figma:'', lane:'me',
+                  done:false, createdAt: Date.now(), updatedAt: Date.now() })
+  $('myAdd').value = ''
+  saveNotes()
+}
+
 // ctrl/cmd+enter adds, so a note never needs the mouse
 $('noteText').onkeydown = e => {
   if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); addNote() }
