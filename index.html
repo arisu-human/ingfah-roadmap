@@ -332,6 +332,27 @@
   #myLane .qnote .acts.tick { transform:none; font-size:13px; }
   @media (max-width:900px) { .planCols { flex-direction:column; }
           #myLane { flex:0 0 auto; max-height:320px; } }
+  /* quick create: five columns, and the first three are chosen by the mouse passing over */
+  .qcCols { display:flex; gap:10px; align-items:stretch; }
+  .qcCol { display:flex; flex-direction:column; gap:6px; flex:0 0 auto; min-width:0; }
+  .qcCol.w1 { width:152px; } .qcCol.w2 { width:200px; }
+  .qcCol.grow { flex:1 1 auto; }
+  .qcHead { font-size:11px; letter-spacing:.5px; text-transform:uppercase; color:var(--muted); }
+  .qcList { display:flex; flex-direction:column; gap:4px; }
+  #qcWho { max-height:340px; overflow-y:auto; }
+  .qcOpt { display:flex; align-items:center; gap:7px; padding:6px 9px; font-size:12px;
+          border:1px solid transparent; border-radius:8px; background:var(--surface-soft);
+          cursor:default; user-select:none; }
+  .qcOpt:hover { border-color:var(--soft-muted); }
+  .qcOpt.on { background:var(--canvas); border-color:var(--ink); font-weight:500; }
+  .qcOpt .dot { width:9px; height:9px; border-radius:50%; flex:0 0 auto;
+          background:var(--soft-muted); }
+  .qcOpt .qcFace { width:20px; height:20px; border-radius:50%; flex:0 0 auto; }
+  .qcOpt span { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  #qcWho .qcOpt { cursor:pointer; }
+  #qcText { width:100%; flex:1 1 auto; min-height:180px; resize:vertical; font-size:13px; }
+  .qcActs { display:flex; align-items:center; gap:10px; }
+  @media (max-width:1000px) { .qcCols { flex-wrap:wrap; } .qcCol.grow { flex:1 0 100%; } }
   /* a plan's expected release date: a flag on the chart at that day, names on hover */
   #flags { position:absolute; inset:0; overflow:hidden; z-index:4; pointer-events:none; }
   #flags .flagline { position:absolute; top:0; bottom:0; width:0;
@@ -530,6 +551,7 @@
   <nav class="tabs">
     <button id="tabRel" class="on">Releases</button>
     <button id="tabQuad">Plan</button>
+    <button id="tabQuick">Quick Create</button>
   </nav>
   <span class="muted" id="stamp"></span>
   <button id="refresh">Refresh</button>
@@ -624,6 +646,26 @@
   <div id="archList" hidden></div>
 </div>
 
+<div class="card tabC" id="quickCard" hidden>
+  <div class="toolrow">
+    <b>Quick Create</b>
+    <span class="muted">Repo, type and status follow the mouse. Ctrl+Enter creates.</span>
+    <span class="sep"></span>
+    <span class="muted" id="qcLast"></span>
+  </div>
+  <div class="qcCols">
+    <div class="qcCol w1"><div class="qcHead">Repo</div><div id="qcRepo" class="qcList"></div></div>
+    <div class="qcCol w1"><div class="qcHead">Type</div><div id="qcType" class="qcList"></div></div>
+    <div class="qcCol w2"><div class="qcHead">Status</div><div id="qcStatus" class="qcList"></div></div>
+    <div class="qcCol w2"><div class="qcHead">Assignee</div><div id="qcWho" class="qcList"></div></div>
+    <div class="qcCol grow"><div class="qcHead">Description</div>
+      <textarea id="qcText"
+        placeholder="First line is the title. Everything under it is the body."></textarea>
+      <div class="qcActs"><button id="qcCreate" class="primary">+ Create</button></div>
+    </div>
+  </div>
+</div>
+
 <div class="card tabR">
   <div class="toolrow">
     <input id="search" type="search" placeholder="Search milestone or card..." style="width:280px">
@@ -678,7 +720,7 @@ const PROJECT_SLICE = 'https://github.com/orgs/100x-fi/projects/6/views/5?sliceB
 // app and the worker, and what to do if either ever has to be rebuilt.
 const CLIENT_ID = 'Ov23ligjYU8yfTEQgmUk'    // from the OAuth app
 const EXCHANGE  = 'https://ingfah-roadmap-auth.nammon-79f.workers.dev/exchange'
-const SCOPES    = 'repo read:project'   // read the board, write milestone due dates
+const SCOPES    = 'repo project'   // read the board, write due dates and new cards
 // GitHub only sends the reply to the callback the OAuth app registered, so this has to be the
 // page's own address with nothing on the end of it
 const REDIRECT  = location.origin + location.pathname
@@ -2764,6 +2806,7 @@ function paint(when) {
   applyPlan(rowsCache)          // planned starts depend on the sprint, not on the fetch
   fillNoteFields()              // the release picker can only list releases once they are built
   drawTable()
+  if (!$('quickCard').hidden) drawQuick()   // the assignee list is built out of the rows
   // The chart is the half that can fail on its own: it is the only part with a library under
   // it. A throw in here used to leave an empty white box and take the rest of the paint with
   // it, which reads as "still loading" for ever. Say what happened, and let the next paint
@@ -2930,20 +2973,200 @@ $('ideaModal').onclick = e => { if (e.target === $('ideaModal')) ideaModal(false
 document.addEventListener('keydown', e => {
   if (e.key === 'Escape' && !$('ideaModal').hidden) ideaModal(false)
 })
-function showTab(quad) {
-  document.querySelectorAll('.tabR').forEach(el => el.hidden = quad)
-  document.querySelectorAll('.tabQ').forEach(el => el.hidden = !quad)
-  $('tabRel').classList.toggle('on', !quad)
-  $('tabQuad').classList.toggle('on', quad)
+
+/* ---- quick create: a card made in one pass of the mouse ---------------------------
+   Repo, type and status are picked by hovering, because clicking three times to file one
+   card is the reason cards do not get filed. Assignees are checkboxes: more than one person
+   can own a card, so that one cannot be a hover. The first line of the description is the
+   title, the rest is the body, the same rule the plan modal already uses.
+
+   Three writes make one card: createIssue, the assignees over REST, then the board item and
+   its Status. The board pair needs the project scope, so a token from before this page had
+   the tab creates the card and stops at the board, and says so. */
+const QC_TYPES = ['Story', 'Task', 'Bug', 'Defect', 'Epic']
+let qcMeta = null
+const qcPick = { repo: REPOS[0], type: 'Story', status: 'Backlog', who: new Set() }
+
+async function gql(query, variables) {
+  const res = await fetch('https://api.github.com/graphql', { method:'POST', cache:'no-store',
+    headers:{ 'Authorization':'Bearer ' + token(), 'Content-Type':'application/json' },
+    body: JSON.stringify({ query, variables }) })
+  if (res.status === 401) { localStorage.removeItem('ghToken')
+                            throw new Error('GitHub rejected the sign-in. Sign in again.') }
+  const j = await res.json().catch(() => ({}))
+  if (j.errors) throw new Error(j.errors[0].message)
+  if (!res.ok) throw new Error('HTTP ' + res.status)
+  return j.data
+}
+
+// repo ids, the issue types and the board's Status options: asked for once, then kept
+async function qcLoadMeta() {
+  if (qcMeta) return qcMeta
+  const parts = REPOS.map((n, i) => 'r' + i + ': repository(owner:"' + OWNER + '",name:"' + n
+    + '"){ id issueTypes(first:20){ nodes{ id name } } }').join('\n')
+  const d = await gql('query{\n organization(login:"' + OWNER + '"){ projectV2(number:'
+    + BOARD_NUMBER + '){ id field(name:"Status"){ ... on ProjectV2SingleSelectField '
+    + '{ id options{ id name } } } } }\n' + parts + '\n}')
+  const repos = {}
+  REPOS.forEach((n, i) => {
+    const r = d['r' + i]
+    if (r) repos[n] = { id: r.id,
+      types: Object.fromEntries(r.issueTypes.nodes.map(t => [t.name, t.id])) }
+  })
+  const pr = d.organization.projectV2
+  qcMeta = { project: pr.id, statusField: pr.field.id, repos,
+             status: Object.fromEntries(pr.field.options.map(o => [o.name, o.id])) }
+  return qcMeta
+}
+
+// hovering paints the choice in place: redrawing the column under the pointer would fight it
+function qcCol(box, list, key) {
+  box.textContent = ''
+  for (const it of list) {
+    const el = elem('div', 'qcOpt' + (qcPick[key] === it.v ? ' on' : ''))
+    if (it.c) { const d = elem('i', 'dot'); d.style.background = it.c; el.appendChild(d) }
+    const t = elem('span'); t.textContent = it.t; el.appendChild(t)
+    const take = () => { qcPick[key] = it.v
+      for (const s of box.children) s.classList.toggle('on', s === el) }
+    el.onmouseenter = take
+    el.onclick = take
+    box.appendChild(el)
+  }
+}
+
+// everybody who holds a card anywhere on the board, the busiest first
+function qcPeople() {
+  const by = new Map()
+  for (const r of rowsCache) for (const p of [...r.devs, ...r.qas]) {
+    const had = by.get(p.login)
+    if (had) had.n += p.n
+    else by.set(p.login, { login:p.login, avatar:p.avatar, n:p.n })
+  }
+  return [...by.values()].sort((a, b) => b.n - a.n)
+}
+
+function qcSays(text, bad, url) {
+  const el = $('qcLast')
+  if (!el) return
+  el.textContent = ''
+  el.className = bad ? 'err' : 'muted'
+  if (!url) { el.textContent = text; return }
+  const a = elem('a'); a.href = url; a.target = '_blank'; a.rel = 'noopener'
+  a.textContent = text; a.style.color = 'inherit'
+  el.appendChild(a)
+}
+
+function drawQuick() {
+  if (!$('quickCard')) return
+  qcCol($('qcRepo'), REPOS.map(r => ({ t:r, v:r })), 'repo')
+  qcCol($('qcType'), QC_TYPES.map(t => ({ t, v:t })), 'type')
+  qcCol($('qcStatus'), BOARD.map(b => ({ t:b.s, v:b.s, c:b.c })), 'status')
+  const box = $('qcWho')
+  box.textContent = ''
+  const list = qcPeople()
+  if (!list.length) {
+    const p = elem('p', 'muted')
+    p.style.fontSize = '12px'
+    p.textContent = 'Nobody yet. The releases have to load first.'
+    box.appendChild(p)
+    return
+  }
+  for (const person of list) {
+    const el = elem('label', 'qcOpt' + (qcPick.who.has(person.login) ? ' on' : ''))
+    const cb = document.createElement('input')
+    cb.type = 'checkbox'
+    cb.checked = qcPick.who.has(person.login)
+    cb.onchange = () => {
+      if (cb.checked) qcPick.who.add(person.login); else qcPick.who.delete(person.login)
+      el.classList.toggle('on', cb.checked)
+    }
+    const img = document.createElement('img')
+    img.className = 'qcFace'
+    img.src = person.avatar + '&s=48'
+    img.alt = person.login
+    const t = elem('span'); t.textContent = person.login
+    el.append(cb, img, t)
+    box.appendChild(el)
+  }
+}
+
+async function createQuick() {
+  const text = $('qcText').value.trim()
+  if (!text) return $('qcText').focus()
+  const title = text.split('\n')[0].trim()
+  const body = text.split('\n').slice(1).join('\n').trim()
+  const btn = $('qcCreate')
+  btn.disabled = true
+  qcSays('creating...')
+  const repoName = qcPick.repo
+  try {
+    const m = await qcLoadMeta()
+    const repo = m.repos[repoName]
+    if (!repo) throw new Error(repoName + ' did not answer with an id')
+    const typeId = repo.types[qcPick.type]
+    if (!typeId) throw new Error(repoName + ' has no issue type called ' + qcPick.type)
+    const d = await gql('mutation($r:ID!,$t:String!,$b:String!,$ty:ID!){'
+      + ' createIssue(input:{repositoryId:$r,title:$t,body:$b,issueTypeId:$ty}){'
+      + ' issue{ id number url } } }',
+      { r: repo.id, t: title, b: body, ty: typeId })
+    const iss = d.createIssue.issue
+    const who = [...qcPick.who]
+    if (who.length) {
+      const r = await fetch('https://api.github.com/repos/' + OWNER + '/' + repoName
+        + '/issues/' + iss.number + '/assignees', { method:'POST',
+        headers:{ 'Authorization':'Bearer ' + token(), 'Accept':'application/vnd.github+json',
+                  'Content-Type':'application/json' },
+        body: JSON.stringify({ assignees: who }) })
+      if (!r.ok) toast('Card made, but the assignees did not stick: HTTP ' + r.status, 'err')
+    }
+    // the board first, its Status second: the item id only exists once the card is on the board
+    try {
+      const add = await gql('mutation($p:ID!,$c:ID!){'
+        + ' addProjectV2ItemById(input:{projectId:$p,contentId:$c}){ item{ id } } }',
+        { p: m.project, c: iss.id })
+      await gql('mutation($p:ID!,$i:ID!,$f:ID!,$o:String!){'
+        + ' updateProjectV2ItemFieldValue(input:{projectId:$p,itemId:$i,fieldId:$f,'
+        + ' value:{singleSelectOptionId:$o}}){ projectV2Item{ id } } }',
+        { p: m.project, i: add.addProjectV2ItemById.item.id, f: m.statusField,
+          o: m.status[qcPick.status] })
+    } catch (e) {
+      toast('Card made, but the board refused: ' + e.message
+        + '. Sign out and in again to grant board write.', 'err')
+    }
+    $('qcText').value = ''
+    qcSays(repoName + ' #' + iss.number + ' created', false, iss.url)
+    toast('Created ' + repoName + ' #' + iss.number, 'ok')
+  } catch (e) {
+    qcSays(e.message, true)
+    toast('Quick Create: ' + e.message, 'err')
+  } finally {
+    btn.disabled = false
+    $('qcText').focus()
+  }
+}
+
+const TABS = { release:'tabR', plan:'tabQ', quick:'tabC' }
+function showTab(name) {
+  for (const k of Object.keys(TABS))
+    document.querySelectorAll('.' + TABS[k]).forEach(el => el.hidden = k !== name)
+  $('tabRel').classList.toggle('on', name === 'release')
+  $('tabQuad').classList.toggle('on', name === 'plan')
+  $('tabQuick').classList.toggle('on', name === 'quick')
   const u = new URL(location)                 // a refresh lands on the same tab
-  u.searchParams.set('tab', quad ? 'plan' : 'release')
+  u.searchParams.set('tab', name)
   history.replaceState(null, '', u)
-  if (quad) drawQuads()
+  if (name === 'plan') drawQuads()
+  else if (name === 'quick') {
+    drawQuick()
+    $('qcText').focus()
+    qcLoadMeta().catch(e => qcSays(e.message, true))   // the first card should not wait for ids
+  }
   // vis sizes itself against a hidden box as zero, so coming back needs a redraw
   else if (timeline) timeline.redraw()
 }
-if (new URLSearchParams(location.search).get('tab') === 'plan') showTab(true)
-$('tabRel').onclick = () => showTab(false)
+const startTab = new URLSearchParams(location.search).get('tab')
+if (TABS[startTab] && startTab !== 'release') showTab(startTab)
+$('tabRel').onclick = () => showTab('release')
 $('archToggle').onclick = () => { archOpen = !archOpen; drawNotes() }
 $('archClear').onclick = () => {
   const arch = liveNotes().filter(isArch)
@@ -2953,7 +3176,13 @@ $('archClear').onclick = () => {
   for (const n of arch) { n.deleted = true; n.text = ''; n.updatedAt = Date.now() }
   saveNotes()
 }
-$('tabQuad').onclick = () => showTab(true)
+$('tabQuad').onclick = () => showTab('plan')
+$('tabQuick').onclick = () => showTab('quick')
+$('qcCreate').onclick = createQuick
+// ctrl/cmd+enter files the card, so a speed run never leaves the keyboard
+$('qcText').onkeydown = e => {
+  if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); createQuick() }
+}
 for (const cell of document.querySelectorAll('.qcell, #qtray, #myLane')) {
   cell.ondragover = e => { e.preventDefault(); cell.classList.add('over') }
   cell.ondragleave = () => cell.classList.remove('over')
