@@ -474,6 +474,9 @@
   .toast.ok  { border-left-color:#39bf45; }
   .toast.err { border-left-color:#ff8182; }
   .toast.out { opacity:0; transition:opacity .2s; }
+  .toast.door { text-decoration:underline; text-underline-offset:3px;
+          text-decoration-color:rgba(255,255,255,.35); }
+  .toast.door:hover { text-decoration-color:currentColor; }
   /* a write that is still running: it stays until the work says it is finished */
   .toast.busy { border-left-color:#00BBA7; cursor:default; display:flex; align-items:center; gap:10px; }
   .toast.busy::before { content:''; flex:0 0 auto; width:13px; height:13px; border-radius:50%;
@@ -2242,16 +2245,19 @@ function ideaModal(open, n, preset) {
 
 /* ---- toast ---- */
 // textContent, never innerHTML: these carry repo names and raw GitHub messages
-function toast(msg, kind) {
+// A toast given a url is a door: clicking it opens the thing it is talking about, in a new
+// tab, and only then gets out of the way. Without one, a click still just dismisses it.
+function toast(msg, kind, url) {
   let box = $('toasts')
   if (!box) { box = elem('div'); box.id = 'toasts'; document.body.appendChild(box) }
-  const t = elem('div', 'toast ' + (kind || 'info'))
-  t.textContent = msg
+  const t = elem('div', 'toast ' + (kind || 'info') + (url ? ' door' : ''))
+  t.textContent = url ? msg + '  \u2197' : msg
   const close = () => { t.classList.add('out'); setTimeout(() => t.remove(), 200) }
-  t.onclick = close
+  t.onclick = () => { if (url) window.open(url, '_blank', 'noopener'); close() }
   box.appendChild(t)
-  // an error stays long enough to read and copy; a success gets out of the way
-  setTimeout(close, kind === 'err' ? 12000 : 4000)
+  // an error stays long enough to read and copy, a door long enough to reach for, and a plain
+  // success gets out of the way
+  setTimeout(close, kind === 'err' ? 12000 : url ? 9000 : 4000)
 }
 
 // A toast that does NOT time out: it spins until the thing it is reporting is really finished,
@@ -3195,7 +3201,7 @@ async function createQuick() {
     $('qcTitle').value = ''
     $('qcText').value = ''
     qcSays(repoName + ' #' + iss.number + ' created', false, iss.url)
-    toast('Created ' + repoName + ' #' + iss.number, 'ok')
+    toast('Created ' + repoName + ' #' + iss.number, 'ok', iss.url)
   } catch (e) {
     qcSays(e.message, true)
     toast('Quick Create: ' + e.message, 'err')
