@@ -360,7 +360,8 @@
   .qcOpt input[type=checkbox] { flex:0 0 auto; width:15px; height:15px; margin:0; padding:0;
           border:none; border-radius:0; background:none; accent-color:#0969da; }
   #qcWho .qcOpt { cursor:pointer; }
-  #qcText { width:100%; flex:1 1 auto; min-height:190px; resize:vertical; font-size:14px; }
+  #qcTitle { width:100%; font-size:14px; font-weight:500; }
+  #qcText { width:100%; flex:1 1 auto; min-height:160px; resize:vertical; font-size:14px; }
   .qcActs { display:flex; align-items:center; gap:10px; }
   #qcCreate { font-size:14px; padding:9px 16px; }
   @media (max-width:1100px) { .qcCols { flex-wrap:wrap; gap:20px; }
@@ -671,8 +672,8 @@
     <div class="qcCol w2"><div class="qcHead">Status</div><div id="qcStatus" class="qcList"></div></div>
     <div class="qcCol w2"><div class="qcHead">Assignee</div><div id="qcWho" class="qcList"></div></div>
     <div class="qcCol grow"><div class="qcHead">Description</div>
-      <textarea id="qcText"
-        placeholder="First line is the title. Everything under it is the body."></textarea>
+      <input id="qcTitle" type="text" placeholder="Title">
+      <textarea id="qcText" placeholder="Body"></textarea>
       <div class="qcActs"><button id="qcCreate" class="primary">+ Create</button></div>
     </div>
   </div>
@@ -3104,10 +3105,9 @@ function drawQuick() {
 }
 
 async function createQuick() {
-  const text = $('qcText').value.trim()
-  if (!text) return $('qcText').focus()
-  const title = text.split('\n')[0].trim()
-  const body = text.split('\n').slice(1).join('\n').trim()
+  const title = $('qcTitle').value.trim()
+  if (!title) return $('qcTitle').focus()
+  const body = $('qcText').value.trim()
   const btn = $('qcCreate')
   btn.disabled = true
   qcSays('creating...')
@@ -3146,6 +3146,7 @@ async function createQuick() {
       toast('Card made, but the board refused: ' + e.message
         + '. Sign out and in again to grant board write.', 'err')
     }
+    $('qcTitle').value = ''
     $('qcText').value = ''
     qcSays(repoName + ' #' + iss.number + ' created', false, iss.url)
     toast('Created ' + repoName + ' #' + iss.number, 'ok')
@@ -3154,7 +3155,7 @@ async function createQuick() {
     toast('Quick Create: ' + e.message, 'err')
   } finally {
     btn.disabled = false
-    $('qcText').focus()
+    $('qcTitle').focus()
   }
 }
 
@@ -3171,7 +3172,7 @@ function showTab(name) {
   if (name === 'plan') drawQuads()
   else if (name === 'quick') {
     drawQuick()
-    $('qcText').focus()
+    $('qcTitle').focus()
     qcLoadMeta().catch(e => qcSays(e.message, true))   // the first card should not wait for ids
   }
   // vis sizes itself against a hidden box as zero, so coming back needs a redraw
@@ -3195,6 +3196,12 @@ $('qcCreate').onclick = createQuick
 // ctrl/cmd+enter files the card, so a speed run never leaves the keyboard
 $('qcText').onkeydown = e => {
   if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); createQuick() }
+}
+// plain Enter on the title walks down to the body, it never files a half written card
+$('qcTitle').onkeydown = e => {
+  if (e.key !== 'Enter') return
+  e.preventDefault()
+  if (e.ctrlKey || e.metaKey) createQuick(); else $('qcText').focus()
 }
 for (const cell of document.querySelectorAll('.qcell, #qtray, #myLane')) {
   cell.ondragover = e => { e.preventDefault(); cell.classList.add('over') }
