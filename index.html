@@ -341,7 +341,7 @@
   .qcCol.grow { flex:0 1 460px; }
   .qcHead { font-size:12px; letter-spacing:.5px; text-transform:uppercase; color:var(--muted); }
   .qcList { display:flex; flex-direction:column; gap:5px; }
-  #qcWho { max-height:380px; overflow-y:auto; }
+  #qcDev, #qcQa { max-height:380px; overflow-y:auto; }
   .qcOpt { display:flex; align-items:center; gap:9px; padding:8px 11px; font-size:14px;
           border:1px solid transparent; border-radius:8px; background:var(--surface-soft);
           cursor:default; user-select:none; }
@@ -359,7 +359,7 @@
      the name beside it */
   .qcOpt input[type=checkbox] { flex:0 0 auto; width:15px; height:15px; margin:0; padding:0;
           border:none; border-radius:0; background:none; accent-color:#0969da; }
-  #qcWho .qcOpt { cursor:pointer; }
+  #qcDev .qcOpt, #qcQa .qcOpt { cursor:pointer; }
   #qcTitle { width:100%; font-size:14px; font-weight:500; }
   #qcText { width:100%; flex:1 1 auto; min-height:160px; resize:vertical; font-size:14px; }
   .qcActs { display:flex; align-items:center; gap:10px; }
@@ -670,7 +670,8 @@
     <div class="qcCol w1"><div class="qcHead">Repo</div><div id="qcRepo" class="qcList"></div></div>
     <div class="qcCol w1"><div class="qcHead">Type</div><div id="qcType" class="qcList"></div></div>
     <div class="qcCol w2"><div class="qcHead">Status</div><div id="qcStatus" class="qcList"></div></div>
-    <div class="qcCol w2"><div class="qcHead">Assignee</div><div id="qcWho" class="qcList"></div></div>
+    <div class="qcCol w2"><div class="qcHead">Dev</div><div id="qcDev" class="qcList"></div></div>
+    <div class="qcCol w2"><div class="qcHead">QA</div><div id="qcQa" class="qcList"></div></div>
     <div class="qcCol grow"><div class="qcHead">Description</div>
       <input id="qcTitle" type="text" placeholder="Title">
       <textarea id="qcText" placeholder="Body"></textarea>
@@ -3048,10 +3049,12 @@ function qcCol(box, list, key) {
   }
 }
 
-// everybody who holds a card anywhere on the board, the busiest first
-function qcPeople() {
+// everybody who holds a card anywhere on the board, the busiest first, each on their own
+// side: QA is the three logins the page already knows, everyone else builds
+function qcPeople(qa) {
   const by = new Map()
   for (const r of rowsCache) for (const p of [...r.devs, ...r.qas]) {
+    if (QA.has(p.login) !== qa) continue
     const had = by.get(p.login)
     if (had) had.n += p.n
     else by.set(p.login, { login:p.login, avatar:p.avatar, n:p.n })
@@ -3075,12 +3078,16 @@ function drawQuick() {
   qcCol($('qcRepo'), REPOS.map(r => ({ t:r, v:r })), 'repo')
   qcCol($('qcType'), QC_TYPES.map(t => ({ t, v:t })), 'type')
   qcCol($('qcStatus'), BOARD.map(b => ({ t:b.s, v:b.s, c:b.c })), 'status')
-  const box = $('qcWho')
+  qcFaces($('qcDev'), qcPeople(false))
+  qcFaces($('qcQa'), qcPeople(true))
+}
+
+// one column of people, ticked or not, all of them writing to the same set
+function qcFaces(box, list) {
   box.textContent = ''
-  const list = qcPeople()
   if (!list.length) {
     const p = elem('p', 'muted')
-    p.style.fontSize = '12px'
+    p.style.fontSize = '13px'
     p.textContent = 'Nobody yet. The releases have to load first.'
     box.appendChild(p)
     return
