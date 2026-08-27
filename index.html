@@ -333,26 +333,38 @@
   @media (max-width:900px) { .planCols { flex-direction:column; }
           #myLane { flex:0 0 auto; max-height:320px; } }
   /* quick create: five columns, and the first three are chosen by the mouse passing over */
-  .qcCols { display:flex; gap:10px; align-items:stretch; }
-  .qcCol { display:flex; flex-direction:column; gap:6px; flex:0 0 auto; min-width:0; }
-  .qcCol.w1 { width:152px; } .qcCol.w2 { width:200px; }
-  .qcCol.grow { flex:1 1 auto; }
-  .qcHead { font-size:11px; letter-spacing:.5px; text-transform:uppercase; color:var(--muted); }
-  .qcList { display:flex; flex-direction:column; gap:4px; }
-  #qcWho { max-height:340px; overflow-y:auto; }
-  .qcOpt { display:flex; align-items:center; gap:7px; padding:6px 9px; font-size:12px;
+  /* the gaps are the point: a wide corridor between columns is where the mouse rests
+     without landing on the next choice */
+  .qcCols { display:flex; gap:28px; align-items:stretch; }
+  .qcCol { display:flex; flex-direction:column; gap:8px; flex:0 0 auto; min-width:0; }
+  .qcCol.w1 { width:168px; } .qcCol.w2 { width:236px; }
+  .qcCol.grow { flex:0 1 460px; }
+  .qcHead { font-size:12px; letter-spacing:.5px; text-transform:uppercase; color:var(--muted); }
+  .qcList { display:flex; flex-direction:column; gap:5px; }
+  #qcWho { max-height:380px; overflow-y:auto; }
+  .qcOpt { display:flex; align-items:center; gap:9px; padding:8px 11px; font-size:14px;
           border:1px solid transparent; border-radius:8px; background:var(--surface-soft);
           cursor:default; user-select:none; }
   .qcOpt:hover { border-color:var(--soft-muted); }
   .qcOpt.on { background:var(--canvas); border-color:var(--ink); font-weight:500; }
-  .qcOpt .dot { width:9px; height:9px; border-radius:50%; flex:0 0 auto;
+  /* a status wears the colour the board gives it, deeper once it is the one chosen */
+  .qcOpt.tone { background:color-mix(in srgb, var(--c) 26%, #fff); }
+  .qcOpt.tone:hover { border-color:var(--c); }
+  .qcOpt.tone.on { background:color-mix(in srgb, var(--c) 62%, #fff); border-color:var(--ink); }
+  .qcOpt .dot { width:10px; height:10px; border-radius:50%; flex:0 0 auto;
           background:var(--soft-muted); }
-  .qcOpt .qcFace { width:20px; height:20px; border-radius:50%; flex:0 0 auto; }
-  .qcOpt span { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .qcOpt .qcFace { width:24px; height:24px; border-radius:50%; flex:0 0 auto; }
+  .qcOpt span { min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  /* the page dresses every input as a text box, which made the checkbox 40px wide and ate
+     the name beside it */
+  .qcOpt input[type=checkbox] { flex:0 0 auto; width:15px; height:15px; margin:0; padding:0;
+          border:none; border-radius:0; background:none; accent-color:#0969da; }
   #qcWho .qcOpt { cursor:pointer; }
-  #qcText { width:100%; flex:1 1 auto; min-height:180px; resize:vertical; font-size:13px; }
+  #qcText { width:100%; flex:1 1 auto; min-height:190px; resize:vertical; font-size:14px; }
   .qcActs { display:flex; align-items:center; gap:10px; }
-  @media (max-width:1000px) { .qcCols { flex-wrap:wrap; } .qcCol.grow { flex:1 0 100%; } }
+  #qcCreate { font-size:14px; padding:9px 16px; }
+  @media (max-width:1100px) { .qcCols { flex-wrap:wrap; gap:20px; }
+          .qcCol.grow { flex:1 0 100%; } }
   /* a plan's expected release date: a flag on the chart at that day, names on hover */
   #flags { position:absolute; inset:0; overflow:hidden; z-index:4; pointer-events:none; }
   #flags .flagline { position:absolute; top:0; bottom:0; width:0;
@@ -3023,8 +3035,9 @@ async function qcLoadMeta() {
 function qcCol(box, list, key) {
   box.textContent = ''
   for (const it of list) {
-    const el = elem('div', 'qcOpt' + (qcPick[key] === it.v ? ' on' : ''))
-    if (it.c) { const d = elem('i', 'dot'); d.style.background = it.c; el.appendChild(d) }
+    const el = elem('div', 'qcOpt' + (it.c ? ' tone' : '') + (qcPick[key] === it.v ? ' on' : ''))
+    if (it.c) { el.style.setProperty('--c', it.c)
+                const d = elem('i', 'dot'); d.style.background = it.c; el.appendChild(d) }
     const t = elem('span'); t.textContent = it.t; el.appendChild(t)
     const take = () => { qcPick[key] = it.v
       for (const s of box.children) s.classList.toggle('on', s === el) }
@@ -3082,7 +3095,7 @@ function drawQuick() {
     }
     const img = document.createElement('img')
     img.className = 'qcFace'
-    img.src = person.avatar + '&s=48'
+    img.src = person.avatar + '&s=64'
     img.alt = person.login
     const t = elem('span'); t.textContent = person.login
     el.append(cb, img, t)
