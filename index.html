@@ -3023,6 +3023,16 @@ const QC_TARGETS = [
   { id:'devdocs', label:'ingfah-dev-docs',             repo:'ingfah-dev-docs',    pre:'[DevDocs] ' }
 ]
 const QC_REPOS = [...new Set(QC_TARGETS.map(t => t.repo))]
+// GitHub names an issue type's colour, it does not give the hex. These are the same soft
+// Primer tones the board options wear, so a type pill and a status pill read as one family.
+const TYPE_TONE = { GRAY:'#afb8c1', BLUE:'#80ccff', GREEN:'#4ac26b', YELLOW:'#f2cc60',
+                    ORANGE:'#ffb77c', RED:'#ff9492', PINK:'#ff9bce', PURPLE:'#c297ff' }
+// what the column shows before GitHub has answered, and what it falls back to if a type is new
+const TYPE_FALLBACK = { Story:'GREEN', Task:'BLUE', Bug:'RED', Defect:'ORANGE', Epic:'PURPLE' }
+const typeColor = t => {
+  const m = qcMeta && qcMeta.repos[qcTarget().repo]
+  return TYPE_TONE[(m && m.colors && m.colors[t]) || TYPE_FALLBACK[t] || 'GRAY']
+}
 const qcTarget = () => QC_TARGETS.find(t => t.id === qcPick.target) || QC_TARGETS[0]
 let qcMeta = null
 const qcPick = { target: QC_TARGETS[0].id, type: 'Story', status: 'Backlog', who: new Set() }
@@ -3058,7 +3068,7 @@ async function qcCheckScope() {
 async function qcLoadMeta() {
   if (qcMeta) return qcMeta
   const parts = QC_REPOS.map((n, i) => 'r' + i + ': repository(owner:"' + OWNER + '",name:"' + n
-    + '"){ id issueTypes(first:20){ nodes{ id name } } }').join('\n')
+    + '"){ id issueTypes(first:20){ nodes{ id name color } } }').join('\n')
   const d = await gql('query{\n organization(login:"' + OWNER + '"){ projectV2(number:'
     + BOARD_NUMBER + '){ id field(name:"Status"){ ... on ProjectV2SingleSelectField '
     + '{ id options{ id name } } } } }\n' + parts + '\n}')
@@ -3066,7 +3076,8 @@ async function qcLoadMeta() {
   QC_REPOS.forEach((n, i) => {
     const r = d['r' + i]
     if (r) repos[n] = { id: r.id,
-      types: Object.fromEntries(r.issueTypes.nodes.map(t => [t.name, t.id])) }
+      types: Object.fromEntries(r.issueTypes.nodes.map(t => [t.name, t.id])),
+      colors: Object.fromEntries(r.issueTypes.nodes.map(t => [t.name, t.color])) }
   })
   const pr = d.organization.projectV2
   qcMeta = { project: pr.id, statusField: pr.field.id, repos,
@@ -3119,7 +3130,7 @@ function drawQuick() {
   if (!$('quickCard')) return
   qcCol($('qcRepo'), QC_TARGETS.map(t => ({ t:t.label, v:t.id })), 'target')
   $('qcPre').textContent = qcTarget().pre
-  qcCol($('qcType'), QC_TYPES.map(t => ({ t, v:t })), 'type')
+  qcCol($('qcType'), QC_TYPES.map(t => ({ t, v:t, c:typeColor(t) })), 'type')
   qcCol($('qcStatus'), BOARD.map(b => ({ t:b.s, v:b.s, c:b.c })), 'status')
   qcFaces($('qcDev'), qcPeople(false))
   qcFaces($('qcQa'), qcPeople(true))
@@ -3226,7 +3237,8 @@ function showTab(name) {
     drawQuick()
     $('qcTitle').focus()
     qcCheckScope()
-    qcLoadMeta().catch(e => qcSays(e.message, true))   // the first card should not wait for ids
+    qcLoadMeta().then(drawQuick)                      // the real type colours arrive with the ids
+      .catch(e => qcSays(e.message, true))            // the first card should not wait for ids
   }
   // vis sizes itself against a hidden box as zero, so coming back needs a redraw
   else if (timeline) timeline.redraw()
