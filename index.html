@@ -339,6 +339,9 @@
   .qcCol { display:flex; flex-direction:column; gap:8px; flex:0 0 auto; min-width:0; }
   .qcCol.w1 { width:168px; } .qcCol.w2 { width:236px; } .qcCol.w3 { width:250px; }
   #qcRepo .qcOpt span { white-space:normal; }
+  /* the three hovered columns stand half again as tall: a taller target is a target the
+     mouse does not slide off on the way to the next one */
+  #qcRepo .qcOpt, #qcType .qcOpt, #qcStatus .qcOpt { padding-top:16px; padding-bottom:16px; }
   .qcCol.grow { flex:0 1 460px; }
   .qcHead { font-size:12px; letter-spacing:.5px; text-transform:uppercase; color:var(--muted); }
   .qcList { display:flex; flex-direction:column; gap:5px; }
