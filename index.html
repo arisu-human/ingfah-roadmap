@@ -343,7 +343,9 @@
      mouse does not slide off on the way to the next one */
   #qcRepo .qcOpt, #qcType .qcOpt, #qcStatus .qcOpt { padding-top:16px; padding-bottom:16px; }
   .qcCol.grow { flex:0 1 460px; }
-  .qcHead { font-size:12px; letter-spacing:.5px; text-transform:uppercase; color:var(--muted); }
+  .qcHead { display:flex; align-items:center; gap:6px;
+          font-size:12px; letter-spacing:.5px; text-transform:uppercase; color:var(--muted); }
+  .qcDice { padding:2px 7px; font-size:13px; line-height:1.4; border-radius:6px; }
   .qcList { display:flex; flex-direction:column; gap:5px; }
   #qcDev, #qcQa { max-height:380px; overflow-y:auto; }
   .qcOpt { display:flex; align-items:center; gap:9px; padding:8px 11px; font-size:14px;
@@ -675,14 +677,21 @@
     <span class="muted">Repo, type and status follow the mouse. Ctrl+Enter creates.</span>
     <span class="sep"></span>
     <span class="muted" id="qcLast"></span>
+    <button id="qcDiceBoth" data-tip="One dev and one QA at random">🎲 Random both</button>
     <button id="qcScope" hidden style="margin-left:auto">Grant board write</button>
   </div>
   <div class="qcCols">
     <div class="qcCol w3"><div class="qcHead">Repo</div><div id="qcRepo" class="qcList"></div></div>
     <div class="qcCol w1"><div class="qcHead">Type</div><div id="qcType" class="qcList"></div></div>
     <div class="qcCol w2"><div class="qcHead">Status</div><div id="qcStatus" class="qcList"></div></div>
-    <div class="qcCol w2"><div class="qcHead">Dev</div><div id="qcDev" class="qcList"></div></div>
-    <div class="qcCol w2"><div class="qcHead">QA</div><div id="qcQa" class="qcList"></div></div>
+    <div class="qcCol w2">
+      <div class="qcHead">Dev <button id="qcDiceDev" class="qcDice"
+           data-tip="Pick one dev at random">🎲</button></div>
+      <div id="qcDev" class="qcList"></div></div>
+    <div class="qcCol w2">
+      <div class="qcHead">QA <button id="qcDiceQa" class="qcDice"
+           data-tip="Pick one QA at random">🎲</button></div>
+      <div id="qcQa" class="qcList"></div></div>
     <div class="qcCol grow"><div class="qcHead">Description</div>
       <input id="qcTitle" type="text" placeholder="Title">
       <textarea id="qcText" placeholder="Body"></textarea>
@@ -3037,7 +3046,10 @@ const typeColor = t => {
   return TYPE_TONE[(m && m.colors && m.colors[t]) || TYPE_FALLBACK[t] || 'GRAY']
 }
 const qcTarget = () => QC_TARGETS.find(t => t.id === qcPick.target) || QC_TARGETS[0]
-const QC_PRES = QC_TARGETS.map(t => t.pre)
+// a bug wears its beetle in front of the repo tag, so every prefix has two spellings
+const QC_BUG = '🪲 '
+const QC_PRES = QC_TARGETS.flatMap(t => [QC_BUG + t.pre, t.pre])
+const qcPrefix = () => (qcPick.type === 'Bug' ? QC_BUG : '') + qcTarget().pre
 
 /* The prefix is typed into the title, not glued to the front of it: a card that should not
    wear one is one backspace away. Moving to another repo swaps the prefix already there, and
@@ -3116,7 +3128,7 @@ function qcCol(box, list, key) {
     const t = elem('span'); t.textContent = it.t; el.appendChild(t)
     const take = () => { qcPick[key] = it.v
       for (const s of box.children) s.classList.toggle('on', s === el)
-      if (key === 'target') qcRetitle(qcTarget().pre) }
+      if (key === 'target' || key === 'type') qcRetitle(qcPrefix()) }
     el.onmouseenter = take
     el.onclick = take
     box.appendChild(el)
@@ -3150,11 +3162,21 @@ function qcSays(text, bad, url) {
 function drawQuick() {
   if (!$('quickCard')) return
   qcCol($('qcRepo'), QC_TARGETS.map(t => ({ t:t.label, v:t.id })), 'target')
-  qcRetitle(qcTarget().pre)
+  qcRetitle(qcPrefix())
   qcCol($('qcType'), QC_TYPES.map(t => ({ t, v:t, c:typeColor(t) })), 'type')
   qcCol($('qcStatus'), BOARD.map(b => ({ t:b.s, v:b.s, c:b.c })), 'status')
   qcFaces($('qcDev'), qcPeople(false))
   qcFaces($('qcQa'), qcPeople(true))
+}
+
+// One name off one side, and only that side: rolling the dev leaves the QA where it is.
+// Nobody on that side means nothing to roll, so the pick is left alone.
+function qcRoll(qa) {
+  const list = qcPeople(qa)
+  if (!list.length) return
+  for (const p of list) qcPick.who.delete(p.login)
+  qcPick.who.add(list[Math.floor(Math.random() * list.length)].login)
+  drawQuick()
 }
 
 // one column of people, ticked or not, all of them writing to the same set
@@ -3228,7 +3250,7 @@ async function createQuick() {
       toast('Card made, but the board refused: ' + e.message, 'err')
       qcCheckScope()
     }
-    $('qcTitle').value = qcTarget().pre
+    $('qcTitle').value = qcPrefix()
     $('qcText').value = ''
     qcSays(repoName + ' #' + iss.number + ' created', false, iss.url)
     toast('Created ' + repoName + ' #' + iss.number, 'ok', iss.url)
@@ -3279,6 +3301,9 @@ $('tabQuick').onclick = () => showTab('quick')
 $('qcCreate').onclick = createQuick
 // the only way to widen a token is to ask GitHub for a new one
 $('qcScope').onclick = () => signIn()
+$('qcDiceDev').onclick = () => qcRoll(false)
+$('qcDiceQa').onclick = () => qcRoll(true)
+$('qcDiceBoth').onclick = () => { qcRoll(false); qcRoll(true) }
 // ctrl/cmd+enter files the card, so a speed run never leaves the keyboard
 $('qcText').onkeydown = e => {
   if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); createQuick() }
