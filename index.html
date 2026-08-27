@@ -354,7 +354,12 @@
   .qcOpt.tone { background:color-mix(in srgb, var(--c) 26%, #fff); }
   .qcOpt.tone:hover { border-color:var(--c); }
   .qcOpt.tone.on { background:color-mix(in srgb, var(--c) 62%, #fff); border-color:var(--ink); }
-  .qcHead #qcPre { text-transform:none; letter-spacing:0; color:var(--ink); font-weight:600; }
+  /* the prefix sits inside the title box, where the title is, not in a label above it */
+  .qcTitleBox { display:flex; align-items:stretch; background:var(--canvas);
+          border:1px solid var(--hairline); border-radius:8px; overflow:hidden; }
+  .qcTitleBox:focus-within { outline:2px solid var(--focus); outline-offset:-1px; }
+  #qcPre { display:flex; align-items:center; padding-left:12px; white-space:nowrap;
+          font-size:14px; font-weight:600; color:var(--muted); }
   .qcOpt .dot { width:10px; height:10px; border-radius:50%; flex:0 0 auto;
           background:var(--soft-muted); }
   .qcOpt .qcFace { width:24px; height:24px; border-radius:50%; flex:0 0 auto; }
@@ -364,7 +369,9 @@
   .qcOpt input[type=checkbox] { flex:0 0 auto; width:15px; height:15px; margin:0; padding:0;
           border:none; border-radius:0; background:none; accent-color:#0969da; }
   #qcDev .qcOpt, #qcQa .qcOpt { cursor:pointer; }
-  #qcTitle { width:100%; font-size:14px; font-weight:500; }
+  #qcTitle { flex:1 1 auto; min-width:0; font-size:14px; font-weight:500;
+          border:none; border-radius:0; background:none; padding-left:5px; }
+  #qcTitle:focus { outline:none; }
   #qcText { width:100%; flex:1 1 auto; min-height:160px; resize:vertical; font-size:14px; }
   .qcActs { display:flex; align-items:center; gap:10px; }
   #qcCreate { font-size:14px; padding:9px 16px; }
@@ -680,8 +687,9 @@
     <div class="qcCol w2"><div class="qcHead">Status</div><div id="qcStatus" class="qcList"></div></div>
     <div class="qcCol w2"><div class="qcHead">Dev</div><div id="qcDev" class="qcList"></div></div>
     <div class="qcCol w2"><div class="qcHead">QA</div><div id="qcQa" class="qcList"></div></div>
-    <div class="qcCol grow"><div class="qcHead">Description <span id="qcPre"></span></div>
-      <input id="qcTitle" type="text" placeholder="Title">
+    <div class="qcCol grow"><div class="qcHead">Description</div>
+      <div class="qcTitleBox"><span id="qcPre"></span>
+        <input id="qcTitle" type="text" placeholder="Title"></div>
       <textarea id="qcText" placeholder="Body"></textarea>
       <div class="qcActs"><button id="qcCreate" class="primary">+ Create</button></div>
     </div>
