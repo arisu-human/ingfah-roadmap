@@ -337,7 +337,8 @@
      without landing on the next choice */
   .qcCols { display:flex; gap:28px; align-items:stretch; }
   .qcCol { display:flex; flex-direction:column; gap:8px; flex:0 0 auto; min-width:0; }
-  .qcCol.w1 { width:168px; } .qcCol.w2 { width:236px; }
+  .qcCol.w1 { width:168px; } .qcCol.w2 { width:236px; } .qcCol.w3 { width:250px; }
+  #qcRepo .qcOpt span { white-space:normal; }
   .qcCol.grow { flex:0 1 460px; }
   .qcHead { font-size:12px; letter-spacing:.5px; text-transform:uppercase; color:var(--muted); }
   .qcList { display:flex; flex-direction:column; gap:5px; }
@@ -346,11 +347,14 @@
           border:1px solid transparent; border-radius:8px; background:var(--surface-soft);
           cursor:default; user-select:none; }
   .qcOpt:hover { border-color:var(--soft-muted); }
-  .qcOpt.on { background:var(--canvas); border-color:var(--ink); font-weight:500; }
+  .qcOpt.on { background:var(--canvas); border-color:var(--ink); font-weight:600;
+          box-shadow:inset 0 0 0 2px var(--ink); }
+  .qcOpt.on::after { content:'\2713'; margin-left:auto; padding-left:8px; font-weight:700; }
   /* a status wears the colour the board gives it, deeper once it is the one chosen */
   .qcOpt.tone { background:color-mix(in srgb, var(--c) 26%, #fff); }
   .qcOpt.tone:hover { border-color:var(--c); }
   .qcOpt.tone.on { background:color-mix(in srgb, var(--c) 62%, #fff); border-color:var(--ink); }
+  .qcHead #qcPre { text-transform:none; letter-spacing:0; color:var(--ink); font-weight:600; }
   .qcOpt .dot { width:10px; height:10px; border-radius:50%; flex:0 0 auto;
           background:var(--soft-muted); }
   .qcOpt .qcFace { width:24px; height:24px; border-radius:50%; flex:0 0 auto; }
@@ -667,12 +671,12 @@
     <span class="muted" id="qcLast"></span>
   </div>
   <div class="qcCols">
-    <div class="qcCol w1"><div class="qcHead">Repo</div><div id="qcRepo" class="qcList"></div></div>
+    <div class="qcCol w3"><div class="qcHead">Repo</div><div id="qcRepo" class="qcList"></div></div>
     <div class="qcCol w1"><div class="qcHead">Type</div><div id="qcType" class="qcList"></div></div>
     <div class="qcCol w2"><div class="qcHead">Status</div><div id="qcStatus" class="qcList"></div></div>
     <div class="qcCol w2"><div class="qcHead">Dev</div><div id="qcDev" class="qcList"></div></div>
     <div class="qcCol w2"><div class="qcHead">QA</div><div id="qcQa" class="qcList"></div></div>
-    <div class="qcCol grow"><div class="qcHead">Description</div>
+    <div class="qcCol grow"><div class="qcHead">Description <span id="qcPre"></span></div>
       <input id="qcTitle" type="text" placeholder="Title">
       <textarea id="qcText" placeholder="Body"></textarea>
       <div class="qcActs"><button id="qcCreate" class="primary">+ Create</button></div>
@@ -2998,8 +3002,23 @@ document.addEventListener('keydown', e => {
    its Status. The board pair needs the project scope, so a token from before this page had
    the tab creates the card and stops at the board, and says so. */
 const QC_TYPES = ['Story', 'Task', 'Bug', 'Defect', 'Epic']
+// The repo is not the whole answer: zai-backend serves the client app and the back office,
+// and the title has to say which. So the column lists targets, and a target carries the repo
+// it files into and the prefix the title wears.
+const QC_TARGETS = [
+  { id:'be',      label:'zai-backend (Client-facing)', repo:'zai-backend',        pre:'[BE] ' },
+  { id:'bobe',    label:'zai-backend (B/O)',           repo:'zai-backend',        pre:'[B/O BE] ' },
+  { id:'fe',      label:'zai-frontend',                repo:'zai-frontend',       pre:'[FE] ' },
+  { id:'bofe',    label:'zai-bo-frontend',             repo:'zai-bo-frontend',    pre:'[B/O FE] ' },
+  { id:'rag',     label:'ingfah-rag',                  repo:'ingfah-rag',         pre:'[RAG] ' },
+  { id:'lk',      label:'livekit-agent',               repo:'livekit-agent',      pre:'[LK] ' },
+  { id:'docs',    label:'ingfah-public-docs',          repo:'ingfah-public-docs', pre:'[Docs] ' },
+  { id:'devdocs', label:'ingfah-dev-docs',             repo:'ingfah-dev-docs',    pre:'[DevDocs] ' }
+]
+const QC_REPOS = [...new Set(QC_TARGETS.map(t => t.repo))]
+const qcTarget = () => QC_TARGETS.find(t => t.id === qcPick.target) || QC_TARGETS[0]
 let qcMeta = null
-const qcPick = { repo: REPOS[0], type: 'Story', status: 'Backlog', who: new Set() }
+const qcPick = { target: QC_TARGETS[0].id, type: 'Story', status: 'Backlog', who: new Set() }
 
 async function gql(query, variables) {
   const res = await fetch('https://api.github.com/graphql', { method:'POST', cache:'no-store',
@@ -3016,13 +3035,13 @@ async function gql(query, variables) {
 // repo ids, the issue types and the board's Status options: asked for once, then kept
 async function qcLoadMeta() {
   if (qcMeta) return qcMeta
-  const parts = REPOS.map((n, i) => 'r' + i + ': repository(owner:"' + OWNER + '",name:"' + n
+  const parts = QC_REPOS.map((n, i) => 'r' + i + ': repository(owner:"' + OWNER + '",name:"' + n
     + '"){ id issueTypes(first:20){ nodes{ id name } } }').join('\n')
   const d = await gql('query{\n organization(login:"' + OWNER + '"){ projectV2(number:'
     + BOARD_NUMBER + '){ id field(name:"Status"){ ... on ProjectV2SingleSelectField '
     + '{ id options{ id name } } } } }\n' + parts + '\n}')
   const repos = {}
-  REPOS.forEach((n, i) => {
+  QC_REPOS.forEach((n, i) => {
     const r = d['r' + i]
     if (r) repos[n] = { id: r.id,
       types: Object.fromEntries(r.issueTypes.nodes.map(t => [t.name, t.id])) }
@@ -3042,7 +3061,8 @@ function qcCol(box, list, key) {
                 const d = elem('i', 'dot'); d.style.background = it.c; el.appendChild(d) }
     const t = elem('span'); t.textContent = it.t; el.appendChild(t)
     const take = () => { qcPick[key] = it.v
-      for (const s of box.children) s.classList.toggle('on', s === el) }
+      for (const s of box.children) s.classList.toggle('on', s === el)
+      if (key === 'target') $('qcPre').textContent = qcTarget().pre }
     el.onmouseenter = take
     el.onclick = take
     box.appendChild(el)
@@ -3075,7 +3095,8 @@ function qcSays(text, bad, url) {
 
 function drawQuick() {
   if (!$('quickCard')) return
-  qcCol($('qcRepo'), REPOS.map(r => ({ t:r, v:r })), 'repo')
+  qcCol($('qcRepo'), QC_TARGETS.map(t => ({ t:t.label, v:t.id })), 'target')
+  $('qcPre').textContent = qcTarget().pre
   qcCol($('qcType'), QC_TYPES.map(t => ({ t, v:t })), 'type')
   qcCol($('qcStatus'), BOARD.map(b => ({ t:b.s, v:b.s, c:b.c })), 'status')
   qcFaces($('qcDev'), qcPeople(false))
@@ -3118,7 +3139,9 @@ async function createQuick() {
   const btn = $('qcCreate')
   btn.disabled = true
   qcSays('creating...')
-  const repoName = qcPick.repo
+  const target = qcTarget()
+  const repoName = target.repo
+  const full = title.startsWith(target.pre) ? title : target.pre + title
   try {
     const m = await qcLoadMeta()
     const repo = m.repos[repoName]
@@ -3128,7 +3151,7 @@ async function createQuick() {
     const d = await gql('mutation($r:ID!,$t:String!,$b:String!,$ty:ID!){'
       + ' createIssue(input:{repositoryId:$r,title:$t,body:$b,issueTypeId:$ty}){'
       + ' issue{ id number url } } }',
-      { r: repo.id, t: title, b: body, ty: typeId })
+      { r: repo.id, t: full, b: body, ty: typeId })
     const iss = d.createIssue.issue
     const who = [...qcPick.who]
     if (who.length) {
