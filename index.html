@@ -669,6 +669,7 @@
     <span class="muted">Repo, type and status follow the mouse. Ctrl+Enter creates.</span>
     <span class="sep"></span>
     <span class="muted" id="qcLast"></span>
+    <button id="qcScope" hidden style="margin-left:auto">Grant board write</button>
   </div>
   <div class="qcCols">
     <div class="qcCol w3"><div class="qcHead">Repo</div><div id="qcRepo" class="qcList"></div></div>
@@ -3032,6 +3033,21 @@ async function gql(query, variables) {
   return j.data
 }
 
+// The sign-in used to ask only to read the board. A token from before that carries no write,
+// and the card lands in the repo but never on the board. GitHub says what the token holds in
+// a header, so the tab can say it up front instead of failing on the last write.
+async function qcCheckScope() {
+  const btn = $('qcScope')
+  if (!btn || !token()) return
+  try {
+    const r = await fetch('https://api.github.com/rate_limit',
+      { cache:'no-store', headers:{ 'Authorization':'Bearer ' + token() } })
+    const have = (r.headers.get('x-oauth-scopes') || '').split(',').map(x => x.trim())
+    btn.hidden = have.includes('project')
+    if (!btn.hidden) qcSays('this sign-in cannot write to the board', true)
+  } catch (e) { /* offline: the create call will say so on its own */ }
+}
+
 // repo ids, the issue types and the board's Status options: asked for once, then kept
 async function qcLoadMeta() {
   if (qcMeta) return qcMeta
@@ -3173,8 +3189,8 @@ async function createQuick() {
         { p: m.project, i: add.addProjectV2ItemById.item.id, f: m.statusField,
           o: m.status[qcPick.status] })
     } catch (e) {
-      toast('Card made, but the board refused: ' + e.message
-        + '. Sign out and in again to grant board write.', 'err')
+      toast('Card made, but the board refused: ' + e.message, 'err')
+      qcCheckScope()
     }
     $('qcTitle').value = ''
     $('qcText').value = ''
@@ -3203,6 +3219,7 @@ function showTab(name) {
   else if (name === 'quick') {
     drawQuick()
     $('qcTitle').focus()
+    qcCheckScope()
     qcLoadMeta().catch(e => qcSays(e.message, true))   // the first card should not wait for ids
   }
   // vis sizes itself against a hidden box as zero, so coming back needs a redraw
@@ -3223,6 +3240,8 @@ $('archClear').onclick = () => {
 $('tabQuad').onclick = () => showTab('plan')
 $('tabQuick').onclick = () => showTab('quick')
 $('qcCreate').onclick = createQuick
+// the only way to widen a token is to ask GitHub for a new one
+$('qcScope').onclick = () => signIn()
 // ctrl/cmd+enter files the card, so a speed run never leaves the keyboard
 $('qcText').onkeydown = e => {
   if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); createQuick() }
