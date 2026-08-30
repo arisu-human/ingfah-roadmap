@@ -346,6 +346,9 @@
   .qcHead { display:flex; align-items:center; gap:6px;
           font-size:12px; letter-spacing:.5px; text-transform:uppercase; color:var(--muted); }
   .qcDice { padding:2px 7px; font-size:13px; line-height:1.4; border-radius:6px; }
+  /* the date is part of the milestone name, so it is shown, one shade back from the name */
+  .msdate { font-style:normal; color:var(--soft-muted); font-variant-numeric:tabular-nums;
+          margin-right:6px; }
   .qcList { display:flex; flex-direction:column; gap:5px; }
   #qcDev, #qcQa { max-height:380px; overflow-y:auto; }
   .qcOpt { display:flex; align-items:center; gap:9px; padding:8px 11px; font-size:14px;
@@ -1141,6 +1144,8 @@ function build(all) {
 // renames the milestone, so the title is not a stable way to remember anything about a release:
 // the tick is kept against this instead, and survives the rename.
 const cleanTitle = t => t.replace(/^\[Closed on \d{8}\]\s*/, '').replace(/^\d{8}\s*/, '').trim()
+// the front of the title, as GitHub carries it: the due date stamp, or the closed bracket
+const titleHead = t => ((t || '').match(/^\[Closed on \d{8}\]|^\d{8}/) || [''])[0]
 // Only a release that has never left To Do can be planned. One that has really started keeps
 // the date it really started on, ticked or not: that is a fact, not a plan.
 let thisSprint = new Set()
@@ -1242,7 +1247,7 @@ const issueUrl = c => 'https://github.com/' + OWNER + '/' + c.repo + '/issues/' 
 let searchQ = ''
 const matchCard = c => !!searchQ && (c.title || '').toLowerCase().includes(searchQ)
 const rowMatch = r => !searchQ
-  || r.name.toLowerCase().includes(searchQ) || r.cards.some(matchCard)
+  || r.title.toLowerCase().includes(searchQ) || r.cards.some(matchCard)
 
 // what one card block says on hover: where it is, what it is called, who is on it.
 // Old cached rows predate the title and the assignees, so both lines vanish gracefully
@@ -2740,7 +2745,9 @@ const COLS = [
       return ''
     })()
       + '<span class="rel copy-name" data-t="' + esc(r.title)
-      + '" data-tip="Click to copy the milestone name">' + esc(r.name) + '</span>'
+      + '" data-tip="Click to copy the milestone name">'
+      + (titleHead(r.title) ? '<i class="msdate">' + esc(titleHead(r.title)) + '</i>' : '')
+      + esc(r.name) + '</span>'
       + '<span class="gopen grename" data-t="' + esc(r.title)
         + '" data-tip="Rename this release on GitHub, in every repo">✎</span>'
       + (r.state === 'closed' ? ''
