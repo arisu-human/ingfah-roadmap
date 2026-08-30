@@ -2293,16 +2293,18 @@ let pending = null, renameTo = null, renameOn = false
 const prettyDue = d => d ? pretty(d) : 'no due date'
 const stampOf = d => d.replace(/-/g, '')
 
-// milestone titles start with the due date, so a moved date leaves a title that lies.
-// Offer the matching rename, but only when the title really carries the old date.
+// Milestone titles start with the due date, so a moved date leaves a title that lies. This
+// used to be a tick, defaulted on, which meant a title could be left lying by one stray click,
+// and it was. The rename now comes with the move, and the bar says so. A name that does not
+// carry the old date is left alone, and the pencil in the table is there for that case.
 function paintRename() {
   const b = $('askRename')
   if (!renameTo) { b.style.display = 'none'; return }
   b.style.display = ''
-  b.textContent = (renameOn ? '☑' : '☐') + ' rename to ' + renameTo.slice(0, 8)
+  b.textContent = 'renames to ' + renameTo.slice(0, 8)
   b.title = renameTo
+  b.disabled = true
 }
-$('askRename').onclick = () => { renameOn = !renameOn; paintRename() }
 
 function askConfirm(r, newDue) {
   const targets = (r.refs || []).filter(f => !f.closed)   // never reschedule a closed milestone
@@ -2316,7 +2318,7 @@ function askConfirm(r, newDue) {
     return toast('Dropped back on ' + pretty(newDue) + ', so nothing changed.', 'info') }
   renameTo = r.due && r.title.startsWith(stampOf(r.due))
     ? stampOf(newDue) + r.title.slice(8) : null
-  renameOn = !!renameTo
+  renameOn = !!renameTo               // the move and the rename are one act, not two
   paintRename()
   pending = { due:newDue, targets, titleBefore:r.title }
   $('askText').innerHTML = 'Move <b>' + esc(r.name) + '</b> due date from ' + prettyDue(r.due)
@@ -2446,10 +2448,7 @@ function cancelAsk(redraw) {
 }
 
 // GitHub GraphQL cannot write a milestone, so this uses the REST route instead
-async function setDue(ref, due, title) {
-  const at = ref.dueOn ? ref.dueOn.slice(10) : 'T12:00:00Z'     // keep the time of day already in use
-  const body = { due_on: due + at }
-  if (title) body.title = title
+async function patchMs(ref, body) {
   const where = ref.repo + ' #' + ref.number
   let res
   try {
@@ -2470,7 +2469,15 @@ async function setDue(ref, due, title) {
     + ', and SSO authorised for ' + OWNER + '.')
   if (!res.ok) throw new Error(where + ': HTTP ' + res.status
     + (j.message ? ' ' + j.message : '') + (j.errors ? ' ' + JSON.stringify(j.errors) : ''))
+  return j
+}
 
+async function setDue(ref, due, title) {
+  const at = ref.dueOn ? ref.dueOn.slice(10) : 'T12:00:00Z'     // keep the time of day already in use
+  const body = { due_on: due + at }
+  if (title) body.title = title
+  const where = ref.repo + ' #' + ref.number
+  const j = await patchMs(ref, body)
   // A 200 is not proof the value stuck. Read the milestone back out of the reply and check.
   // This is what turns a silent no-op into something you can see.
   const got = (j.due_on || '').slice(0, 10)
@@ -2479,6 +2486,52 @@ async function setDue(ref, due, title) {
   if (title && j.title !== title) throw new Error(where + ': the due date moved but the title '
     + 'came back as "' + j.title + '", not "' + title + '"')
   return where
+}
+
+async function setTitle(ref, title) {
+  const where = ref.repo + ' #' + ref.number
+  const j = await patchMs(ref, { title })
+  if (j.title !== title) throw new Error(where + ': GitHub accepted the change but the name came '
+    + 'back as "' + j.title + '", not "' + title + '"')
+  return where
+}
+
+/* A name is edited by hand now and then: a typo, a scope that changed, a release that took
+   a different shape. The rule is the same as every other milestone write, so it lands in
+   every repo carrying the release or it does not count. The date prefix is part of the name
+   and this does not touch the due date, so a prefix that stops matching is said out loud. */
+async function renameRelease(r) {
+  const refs = r.refs || []
+  if (!refs.length) return toast('This release was drawn from an old cached copy that has no '
+    + 'milestone ids. Press Refresh, then try again.', 'err')
+  const next = prompt('Rename this release in ' + refs.length + ' repo'
+    + (refs.length > 1 ? 's' : '') + '.\nThe date at the front is part of the name.', r.title)
+  if (next === null) return
+  const title = next.trim()
+  if (!title || title === r.title) return
+  const spin = busyToast('Renaming ' + refs.length + ' milestone'
+    + (refs.length > 1 ? 's' : '') + '...')
+  const won = []
+  try {
+    for (const ref of refs) {                  // one at a time, so a failure names the repo
+      spin.set('Saving ' + ref.repo + ' #' + ref.number + ' \u00b7 ' + (won.length + 1)
+        + ' of ' + refs.length + '...')
+      won.push(await setTitle(ref, title))
+    }
+    localStorage.removeItem(CACHE)
+    spin.set('Renamed \u00b7 reading it back from GitHub...')
+    await load(true)
+    spin.done()
+    toast('Renamed to ' + title + ' \u00b7 ' + won.join(', '), 'ok')
+    const stamp = (title.match(/^(\d{8})/) || [])[1]
+    if (r.state !== 'closed' && r.due && stamp !== stampOf(r.due))
+      toast('The name says ' + (stamp || 'no date') + ' but the due date is ' + pretty(r.due)
+        + '. Drag the bar to move the date.', 'err')
+  } catch (e) {
+    spin.done()
+    toast('Rename: ' + e.message + (won.length ? ' \u2014 already renamed: ' + won.join(', ') : ''),
+      'err')
+  }
 }
 
 $('askNo').onclick = () => cancelAsk(true)
@@ -2688,6 +2741,8 @@ const COLS = [
     })()
       + '<span class="rel copy-name" data-t="' + esc(r.title)
       + '" data-tip="Click to copy the milestone name">' + esc(r.name) + '</span>'
+      + '<span class="gopen grename" data-t="' + esc(r.title)
+        + '" data-tip="Rename this release on GitHub, in every repo">✎</span>'
       + (r.state === 'closed' ? ''
           : '<span class="gopen gclose" data-t="' + esc(r.title)
             + '" data-tip="Close this release on GitHub, in every repo">🏁</span>')
@@ -2750,6 +2805,9 @@ function drawTable() {
   })
   $('table').querySelectorAll('.gclose').forEach(el => {
     el.onclick = () => askClose(rowsCache.find(r => r.title === el.dataset.t))
+  })
+  $('table').querySelectorAll('.grename').forEach(el => {
+    el.onclick = () => renameRelease(rowsCache.find(r => r.title === el.dataset.t))
   })
   $('table').querySelectorAll('.tick').forEach(el => {
     el.onclick = () => toggleSprint(el.dataset.t)
