@@ -395,7 +395,7 @@
   th { padding-top:8px; padding-bottom:8px; }
   /* the three columns Eddie reads most get the room; the rest give it up */
   .col-prog, .col-build, .col-fix { padding-left:14px; padding-right:14px; }
-  .col-state, .col-devs, .col-qas { padding-left:8px; padding-right:8px; }
+  .col-state, .col-devs, .col-qas, .col-fixers { padding-left:8px; padding-right:8px; }
   .col-sprint { padding-left:4px; padding-right:4px; text-align:center; }
   .dates { font-variant-numeric:tabular-nums; }
   .dates .late { color:var(--late); font-weight:500; }
@@ -2643,6 +2643,23 @@ function peopleBar(list) {
       + '<img class="face" src="' + esc(p.avatar) + '&s=48" alt="' + esc(p.login) + '"></span>'
   }).join('') + '</span>'
 }
+/* The Devs column says who is on the release. This one says who is on the part of it that
+   is broken: the same faces, counted over Bug and Defect cards only, QA left out because a
+   bug they filed is not a bug they own. Read off the cards rather than stored on the row, so
+   a page opened on a cached copy still draws it. */
+function fixPeople(r) {
+  const by = new Map()
+  for (const c of r.cards || []) {
+    if (!FIX_TYPES.includes(c.type)) continue
+    for (const a of c.people || []) {
+      if (QA.has(a.login)) continue
+      const p = by.get(a.login) || { login:a.login, avatar:a.avatarUrl, n:0, qa:false }
+      p.n++; by.set(a.login, p)
+    }
+  }
+  return [...by.values()].sort((a, b) => b.n - a.n)
+}
+
 // One block per card so the count is readable by eye. Off the 100% toggle the bar is as wide
 // as the cards it holds; on it, the blocks share the column but keep their separators.
 const BUILD_TYPES = ['Story', 'Task', 'no type']
@@ -2766,6 +2783,8 @@ const COLS = [
   { k:'fix',   h:'Bug & Defect', cell:r => cardBlocks(r, FIX_TYPES, 'Bug & Defect'),
     val:r => r.cards.filter(c => FIX_TYPES.includes(c.type)).length },
   { k:'devs',  h:'Devs',     cell:r => peopleBar(r.devs), val:r => r.devs.length },
+  { k:'fixers', h:'Bug & Defect Devs', cell:r => peopleBar(fixPeople(r)),
+    val:r => fixPeople(r).length },
   { k:'qas',   h:'QAs',      cell:r => peopleBar(r.qas),  val:r => r.qas.length },
   { k:'dates', h:'Start &rarr; Due', cell:datesCell, val:r => r.due }
 ]
