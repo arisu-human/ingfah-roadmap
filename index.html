@@ -323,6 +323,7 @@
   .planMain { flex:1; min-width:0; }
   #myLane { flex:0 0 250px; display:flex; flex-direction:column; padding:10px;
           border:1px solid var(--hairline); border-radius:10px; background:var(--canvas); }
+  #myLane[hidden] { display:none; }    /* display:flex would out-rank the hidden attribute */
   #myLane.over { outline:2px solid var(--focus); outline-offset:-2px; }
   #myLane .qhead { flex:0 0 auto; }
   #myAdd { width:100%; margin:8px 0 0; font-size:12px; }
@@ -660,7 +661,7 @@
   </div>
   <div id="qtray"><div class="qhead">Not rated yet<span class="muted">drag here to unrate</span></div><div class="qbody"></div></div>
    </div>
-   <aside id="myLane">
+   <aside id="myLane" hidden>
      <div class="qhead">My tasks<span class="muted" id="myCount">out of sprint</span></div>
      <input id="myAdd" type="text" placeholder="A task of mine. Enter adds it.">
      <div class="qbody"></div>
@@ -2097,9 +2098,16 @@ function myNoteEl(n) {
   return el
 }
 
+// The lane is one person's own list, so it belongs to one person's screen. Anyone else
+// signed in gets the board across the full width and never sees these notes, on the lane or
+// on the quadrants. Until GitHub has said who is signed in, the lane stays away.
+const LANE_OWNERS = new Set(['eddie100x', 'nammon100x'])
+
 function drawLane(list) {
   const box = document.querySelector('#myLane .qbody')
   if (!box) return
+  $('myLane').hidden = !LANE_OWNERS.has(me)
+  if ($('myLane').hidden) return
   box.textContent = ''
   $('myCount').textContent = list.length ? list.length + ' open' : 'out of sprint'
   if (!list.length) {
@@ -2928,6 +2936,7 @@ function paint(when) {
   fillNoteFields()              // the release picker can only list releases once they are built
   drawTable()
   if (!$('quickCard').hidden) drawQuick()   // the assignee list is built out of the rows
+  if (!$('quadCard').hidden) drawQuads()   // the lane only appears once GitHub says who we are
   // The chart is the half that can fail on its own: it is the only part with a library under
   // it. A throw in here used to leave an empty white box and take the rest of the paint with
   // it, which reads as "still loading" for ever. Say what happened, and let the next paint
