@@ -188,7 +188,7 @@
   .gopen, .gcopy { flex:0 0 auto; color:var(--soft-muted); text-decoration:none; font-size:13px;
            line-height:1; padding:3px 4px; border-radius:6px; }
   .gopen:hover, .gcopy:hover { color:var(--link); background:var(--surface-soft); }
-  .gcopy { cursor:pointer; user-select:none; }
+  .gcopy, .gact, .grename, .gclose { cursor:pointer; user-select:none; }
   .vis-foreground .vis-group { border-bottom:1px solid #eef1f4; }
   .vis-item.vis-background.off { background:rgba(140,149,159,.20); }
   .vis-item.vis-background.holiday { background:rgba(207,34,46,.10); }
@@ -1361,8 +1361,13 @@ function labelEl(r) {
   open.title = 'Open the board filtered to this milestone'
   open.textContent = '↗'
   wrap.append(tickEl(r), name, pill, cnt)
+  const pen = elem('span', 'gopen gact')
+  pen.textContent = '✎'
+  pen.dataset.tip = 'Rename this release on GitHub, in every repo'
+  pen.onclick = e => { e.stopPropagation(); renameRelease(r) }
+  wrap.appendChild(pen)
   if (r.state !== 'closed') {
-    const flag = elem('span', 'gopen gclose')
+    const flag = elem('span', 'gopen gclose gact')
     flag.textContent = '🏁'
     flag.dataset.tip = 'Close this release on GitHub, in every repo'
     flag.onclick = e => { e.stopPropagation(); askClose(r) }
@@ -2773,7 +2778,7 @@ const COLS = [
       + '" data-tip="Click to copy the milestone name">'
       + (titleHead(r.title) ? '<i class="msdate">' + esc(titleHead(r.title)) + '</i>' : '')
       + esc(r.name) + '</span>'
-      + '<span class="gopen grename" data-t="' + esc(r.title)
+      + '<span class="gopen grename gact" data-t="' + esc(r.title)
         + '" data-tip="Rename this release on GitHub, in every repo">✎</span>'
       + (r.state === 'closed' ? ''
           : '<span class="gopen gclose" data-t="' + esc(r.title)
