@@ -188,7 +188,8 @@
   .gopen, .gcopy { flex:0 0 auto; color:var(--soft-muted); text-decoration:none; font-size:13px;
            line-height:1; padding:3px 4px; border-radius:6px; }
   .gopen:hover, .gcopy:hover { color:var(--link); background:var(--surface-soft); }
-  .gcopy, .gact, .grename, .gclose { cursor:pointer; user-select:none; }
+  .gcopy, .gact { cursor:pointer; user-select:none; }
+  .gpen { display:inline-block; transform:scaleX(-1); }   /* the plan page holds it this way */
   .vis-foreground .vis-group { border-bottom:1px solid #eef1f4; }
   .vis-item.vis-background.off { background:rgba(140,149,159,.20); }
   .vis-item.vis-background.holiday { background:rgba(207,34,46,.10); }
@@ -312,6 +313,7 @@
           pointer-events:none; user-select:none; z-index:0; }
   .qbody { position:relative; z-index:1; }
   .qcell:hover .qwm { color:rgba(24,29,38,.20); }
+  .qwm[hidden] { display:none; }    /* display:flex would out-rank the hidden attribute */
   .qnote .title { color:var(--ink); font-weight:500; word-break:break-word; }
   .qnote .meta { display:flex; flex-wrap:wrap; gap:5px; margin-top:4px; }
   .qnote .chip { font-size:10px; padding:0 7px; }
@@ -583,6 +585,7 @@
     <button id="tabQuick">Quick Create</button>
   </nav>
   <span class="muted" id="stamp"></span>
+  <span class="chip" id="roChip" hidden>read only</span>
   <button id="refresh">Refresh</button>
   <span class="sep"></span>
   <span class="quota" id="quota" hidden></span>
@@ -890,6 +893,19 @@ const clock = ms => new Date(ms).toLocaleTimeString('en-GB',
 
 let rate = null                          // what GitHub last told us about the hourly budget
 let me = null                            // the login GitHub says we are signed in as
+/* Two people own the releases and the plan, and everybody else reads them. Quick Create is
+   deliberately outside this: filing a card is what the rest of the team is here for, and a
+   card is additive, while a moved date, a closed release, a renamed milestone or an edited
+   plan note rewrites something other people are relying on. Every control that writes one of
+   those is left off the page for anyone else, and the calls behind them refuse as well, so a
+   stale page cannot reach past the missing button. */
+const OWNERS = new Set(['eddie100x', 'nammon100x'])
+const canWrite = () => OWNERS.has(me)
+const LANE_OWNERS = OWNERS
+function noWrite() {
+  toast('Only ' + [...OWNERS].join(' and ') + ' can change releases and plans. '
+    + 'Quick Create is open to everyone.', 'err')
+}
 
 // An app the org has not approved sees private repos as though they do not exist, so GitHub
 // answers "could not resolve" and the real problem never reaches the screen. Say that instead.
@@ -1361,12 +1377,14 @@ function labelEl(r) {
   open.title = 'Open the board filtered to this milestone'
   open.textContent = '↗'
   wrap.append(tickEl(r), name, pill, cnt)
-  const pen = elem('span', 'gopen gact')
-  pen.textContent = '✎'
-  pen.dataset.tip = 'Rename this release on GitHub, in every repo'
-  pen.onclick = e => { e.stopPropagation(); renameRelease(r) }
-  wrap.appendChild(pen)
-  if (r.state !== 'closed') {
+  if (canWrite()) {
+    const pen = elem('span', 'gopen gact gpen')
+    pen.textContent = '\u270e'
+    pen.dataset.tip = 'Rename this release on GitHub, in every repo'
+    pen.onclick = e => { e.stopPropagation(); renameRelease(r) }
+    wrap.appendChild(pen)
+  }
+  if (r.state !== 'closed' && canWrite()) {
     const flag = elem('span', 'gopen gclose gact')
     flag.textContent = '🏁'
     flag.dataset.tip = 'Close this release on GitHub, in every repo'
@@ -1525,7 +1543,7 @@ function drawTimeline(rows) {
       const h = el && el.querySelector('[data-id]')
       return h ? { el, id: +h.dataset.id, row: shownCache[+h.dataset.id] } : null
     }
-    const onEdge = (hit, x) => !!hit && !!hit.row && hit.row.state !== 'closed'
+    const onEdge = (hit, x) => canWrite() && !!hit && !!hit.row && hit.row.state !== 'closed'
       && x >= hit.el.getBoundingClientRect().right - EDGE
 
     // vis drives its panning from pointerdown, so the handle has to claim that same event
@@ -2001,6 +2019,7 @@ function noteEl(n) {
   body.appendChild(meta)
 
   const acts = elem('div', 'acts')
+  if (!canWrite()) { el.appendChild(body); return el }
   const act = (glyph, tip, fn) => {
     const a = elem('span'); a.textContent = glyph; a.dataset.tip = tip; a.onclick = fn
     acts.appendChild(a)
@@ -2043,14 +2062,16 @@ const relDue = d => d < 0 ? Math.abs(d) + 'd late' : d === 0 ? 'today'
 function qnoteEl(n) {
   const el = elem('div', 'qnote')
   el.dataset.nid = n.id
-  el.draggable = true
-  el.ondblclick = ev => { ev.stopPropagation(); ideaModal(true, n) }
-  el.ondragstart = e => { e.dataTransfer.setData('text/plain', n.id)
-                          e.dataTransfer.effectAllowed = 'move' }
-  const pen = elem('span', 'acts'); pen.textContent = '\u270e'
-  pen.dataset.tip = 'Edit this plan'
-  pen.onclick = e => { e.stopPropagation(); ideaModal(true, n) }
-  el.appendChild(pen)
+  if (canWrite()) {
+    el.draggable = true
+    el.ondblclick = ev => { ev.stopPropagation(); ideaModal(true, n) }
+    el.ondragstart = e => { e.dataTransfer.setData('text/plain', n.id)
+                            e.dataTransfer.effectAllowed = 'move' }
+    const pen = elem('span', 'acts'); pen.textContent = '\u270e'
+    pen.dataset.tip = 'Edit this plan'
+    pen.onclick = e => { e.stopPropagation(); ideaModal(true, n) }
+    el.appendChild(pen)
+  }
   const t = elem('div', 'title'); t.textContent = noteTitle(n) || '(empty plan)'
   el.appendChild(t)
   const meta = elem('div', 'meta')
@@ -2106,7 +2127,6 @@ function myNoteEl(n) {
 // The lane is one person's own list, so it belongs to one person's screen. Anyone else
 // signed in gets the board across the full width and never sees these notes, on the lane or
 // on the quadrants. Until GitHub has said who is signed in, the lane stays away.
-const LANE_OWNERS = new Set(['eddie100x', 'nammon100x'])
 
 function drawLane(list) {
   const box = document.querySelector('#myLane .qbody')
@@ -2165,6 +2185,7 @@ function drawPlanline() {
       c.classList.remove('lit') }
     // dragging the flag moves the expected date of every plan on it, snapped to days
     f.onpointerdown = e => {
+      if (!canWrite()) return
       e.preventDefault()
       f.setPointerCapture(e.pointerId)
       const r = box.getBoundingClientRect()
@@ -2192,6 +2213,8 @@ function drawPlanline() {
 
 function drawQuads() {
   if (!$('quadCard')) return
+  $('ideaNew').hidden = !canWrite()
+  document.querySelectorAll('.qwm').forEach(el => { el.hidden = !canWrite() })
   drawPlanline()
   const all = liveNotes().filter(n => !isArch(n))
   const live = all.filter(n => n.lane !== 'me')
@@ -2212,13 +2235,16 @@ function drawQuads() {
     ? live.length + ' open' + (unrated ? ' \u00b7 ' + unrated + ' not rated' : '') : ''
   if (!live.length) {
     const p = elem('p', 'muted')
-    p.textContent = 'Nothing yet. + Plan captures anything you would forget by tomorrow.'
+    p.textContent = canWrite()
+      ? 'Nothing yet. + Plan captures anything you would forget by tomorrow.'
+      : 'Nothing on the board yet.'
     document.querySelector('#qtray .qbody').appendChild(p)
   }
 }
 
 let editingId = null
 function addNote() {
+  if (!canWrite()) { ideaModal(false); return noWrite() }
   const text = $('noteText').value.trim()
   if (!text) return $('noteText').focus()
   const n = editingId && notes.find(x => x.id === editingId)
@@ -2325,6 +2351,7 @@ function paintRename() {
 }
 
 function askConfirm(r, newDue) {
+  if (!canWrite()) { cancelAsk(true); return noWrite() }
   const targets = (r.refs || []).filter(f => !f.closed)   // never reschedule a closed milestone
   // Both of these used to just put the bar back and say nothing, which looked like the drag
   // had worked. Say what happened instead.
@@ -2375,6 +2402,7 @@ function closedTitle(r) {
 }
 
 function askClose(r) {
+  if (!canWrite()) return noWrite()
   if (!r || r.state === 'closed') return
   if (r.cards.some(c => c.open === undefined)) {
     return toast('This row was loaded by an older copy of the page. Press Refresh, then close.', 'err')
@@ -2519,6 +2547,7 @@ async function setTitle(ref, title) {
    every repo carrying the release or it does not count. The date prefix is part of the name
    and this does not touch the due date, so a prefix that stops matching is said out loud. */
 async function renameRelease(r) {
+  if (!canWrite()) return noWrite()
   const refs = r.refs || []
   if (!refs.length) return toast('This release was drawn from an old cached copy that has no '
     + 'milestone ids. Press Refresh, then try again.', 'err')
@@ -2778,10 +2807,10 @@ const COLS = [
       + '" data-tip="Click to copy the milestone name">'
       + (titleHead(r.title) ? '<i class="msdate">' + esc(titleHead(r.title)) + '</i>' : '')
       + esc(r.name) + '</span>'
-      + '<span class="gopen grename gact" data-t="' + esc(r.title)
-        + '" data-tip="Rename this release on GitHub, in every repo">✎</span>'
-      + (r.state === 'closed' ? ''
-          : '<span class="gopen gclose" data-t="' + esc(r.title)
+      + (canWrite() ? '<span class="gopen grename gact gpen" data-t="' + esc(r.title)
+        + '" data-tip="Rename this release on GitHub, in every repo">\u270e</span>' : '')
+      + (r.state === 'closed' || !canWrite() ? ''
+          : '<span class="gopen gclose gact" data-t="' + esc(r.title)
             + '" data-tip="Close this release on GitHub, in every repo">🏁</span>')
       + '<a class="gopen" target="_blank" rel="noopener" title="Open the board filtered to this milestone" href="'
       + PROJECT_SLICE + encodeURIComponent(r.title) + '">↗</a>',
@@ -2963,6 +2992,10 @@ function paint(when) {
   const devs = new Set(shown.flatMap(r => r.devs.map(p => p.login))).size
   const qas  = new Set(shown.flatMap(r => r.qas.map(p => p.login))).size
   // short line; the detail lives on hover. Warnings stay visible: silence would read as complete.
+  $('roChip').hidden = !me || canWrite()
+  $('roChip').dataset.tip = 'This sign-in reads the board and files cards in Quick Create.'
+    + '<br>Moving, closing and renaming a release, and the plan notes, belong to '
+    + [...OWNERS].join(' and ') + '.'
   $('stamp').textContent = clock(when)
     + ' · ' + shown.length + ' releases'
     + (n('slipped') ? ' · ' + n('slipped') + ' slipped' : '')
@@ -3387,6 +3420,7 @@ if (TABS[startTab] && startTab !== 'release') showTab(startTab)
 $('tabRel').onclick = () => showTab('release')
 $('archToggle').onclick = () => { archOpen = !archOpen; drawNotes() }
 $('archClear').onclick = () => {
+  if (!canWrite()) return noWrite()
   const arch = liveNotes().filter(isArch)
   if (!arch.length) return
   if (!confirm('Delete ' + arch.length + ' archived plan' + (arch.length > 1 ? 's' : '')
@@ -3417,11 +3451,13 @@ for (const cell of document.querySelectorAll('.qcell, #qtray, #myLane')) {
   cell.ondragleave = () => cell.classList.remove('over')
   if (cell.id !== 'qtray' && cell.id !== 'myLane') cell.onclick = ev => {
     if (ev.target.closest('.qnote')) return      // a card click is the card's business
+    if (!canWrite()) return noWrite()
     ideaModal(true, null, { e: cell.dataset.e, i: cell.dataset.i })
   }
   cell.ondrop = e => {
     e.preventDefault()
     cell.classList.remove('over')
+    if (!canWrite()) return
     const n = notes.find(x => x.id === e.dataTransfer.getData('text/plain'))
     if (!n) return
     if (cell.id === 'myLane') { n.lane = 'me'; delete n.effort; delete n.impact }
