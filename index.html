@@ -35,6 +35,10 @@
   .card.flush { padding:0; overflow:hidden; }
   .bar { display:flex; align-items:center; gap:12px; padding:12px 16px;
          border-bottom:1px solid var(--hairline); flex-wrap:wrap; row-gap:8px; }
+  .who { display:inline-flex; align-items:center; gap:6px; font-size:12px; color:var(--muted); }
+  .who[hidden] { display:none; }    /* display:inline-flex would out-rank the hidden attribute */
+  .who img { width:20px; height:20px; border-radius:50%; display:block; }
+  .who b { font-weight:500; color:var(--ink); }
   button { font:inherit; font-weight:500; color:var(--ink); padding:6px 12px;
            border:1px solid var(--hairline); border-radius:12px;
            background:var(--canvas); cursor:pointer; }
@@ -593,6 +597,8 @@
   <button id="refresh">Refresh</button>
   <span class="sep"></span>
   <span class="quota" id="quota" hidden></span>
+  <span class="who" id="who" hidden>logged in as
+    <img id="whoFace" alt=""><b id="whoName"></b></span>
   <button id="signout" hidden>Sign out</button>
 </header>
 
@@ -854,7 +860,7 @@ const PAGE_MS = 10
 const ISSUES  = 70            // biggest milestone ever had 64 cards
 // zai-backend closed 12 milestones inside one 14 day window, so 10 was already too few
 let closedMs  = 20            // grows when Show older is pressed
-const RATE_HEAD = `rateLimit{ remaining resetAt } viewer{ login }`
+const RATE_HEAD = `rateLimit{ remaining resetAt } viewer{ login avatarUrl(size:40) }`
 const PAGE_INFO = `pageInfo{ hasNextPage endCursor }`
 const Q_OPEN = `
 query($owner:String!,$name:String!,$ms:Int!,$iss:Int!,$after:String){
@@ -897,6 +903,7 @@ const clock = ms => new Date(ms).toLocaleTimeString('en-GB',
 
 let rate = null                          // what GitHub last told us about the hourly budget
 let me = null                            // the login GitHub says we are signed in as
+let myFace = null                        // that login's avatar, off the same query
 /* Two people own the releases and the plan, and everybody else reads them. Quick Create is
    deliberately outside this: filing a card is what the rest of the team is here for, and a
    card is additive, while a moved date, a closed release, a renamed milestone or an edited
@@ -984,6 +991,17 @@ async function finishSignIn() {
   return true
 }
 
+// the header says who is holding the token, so a shared screen never signs the wrong
+// person's name to a write
+function paintWho() {
+  const w = $('who')
+  w.hidden = !me
+  if (!me) return
+  $('whoName').textContent = me
+  $('whoFace').src = myFace || ''
+  $('whoFace').hidden = !myFace
+}
+
 function signOut() {
   localStorage.removeItem('ghToken')
   localStorage.removeItem(CACHE)         // the next person here must not find these numbers
@@ -1005,7 +1023,11 @@ async function ask(query, name, ms, after) {
   }
   const json = await res.json()
   if (json.data && json.data.rateLimit) { rate = json.data.rateLimit; paintQuota() }
-  if (json.data && json.data.viewer) me = json.data.viewer.login
+  if (json.data && json.data.viewer) {
+    me = json.data.viewer.login
+    myFace = json.data.viewer.avatarUrl
+    paintWho()
+  }
   if (json.errors) {
     const e = json.errors[0]
     if (e.type === 'NOT_FOUND') throw new Error(noAccess(name))
@@ -3028,6 +3050,7 @@ async function load(force) {
   if (!token()) {
     gateOn()
     $('signout').hidden = true
+    $('who').hidden = true
     $('tl').textContent = ''; $('table').innerHTML = ''
     return
   }
