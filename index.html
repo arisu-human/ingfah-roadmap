@@ -320,6 +320,10 @@
   .qnote .acts { float:right; margin-left:6px; cursor:pointer; color:var(--soft-muted);
           font-size:12px; display:inline-block; transform:scaleX(-1); }
   .qnote .acts:hover { color:var(--ink); }
+  /* high effort: a thicker, darker border, marked by the hexagon that shows on hover */
+  .qnote.hieff { border-width:2px; border-color:var(--ink); padding:5px 8px; }
+  .qnote .acts.hieff { transform:none; opacity:0; }
+  .qnote:hover .acts.hieff, .qnote.hieff .acts.hieff { opacity:1; }
   /* the right lane: what Eddie owes himself, next to the board but never on it */
   .planCols { display:flex; gap:12px; align-items:stretch; }
   .planMain { flex:1; min-width:0; }
@@ -766,7 +770,7 @@ const SCOPES    = 'repo project'   // read the board, write due dates and new ca
 // page's own address with nothing on the end of it
 const REDIRECT  = location.origin + location.pathname
 const REFRESH_MS = 15 * 60 * 1000
-const QA = new Set(['kat100xfi','subzero-ice','viviintern-eng'])
+const QA = new Set(['kat100xfi','subzero-ice','viviintern-eng','qa-iger'])
 const STATUS_TODO = 'To Do'
 const STATUS_READY = 'Ready for Test'
 const STATUS_DONE  = 'Done'
@@ -2060,7 +2064,7 @@ const relDue = d => d < 0 ? Math.abs(d) + 'd late' : d === 0 ? 'today'
   : d < 7 ? d + 'd' : d < 28 ? Math.floor(d / 7) + 'w' : '>4w'
 
 function qnoteEl(n) {
-  const el = elem('div', 'qnote')
+  const el = elem('div', 'qnote' + (n.hieff ? ' hieff' : ''))
   el.dataset.nid = n.id
   if (canWrite()) {
     el.draggable = true
@@ -2071,6 +2075,13 @@ function qnoteEl(n) {
     pen.dataset.tip = 'Edit this plan'
     pen.onclick = e => { e.stopPropagation(); ideaModal(true, n) }
     el.appendChild(pen)
+    // the hexagon fills when the plan is high effort, and the card takes the thicker border
+    const hi = elem('span', 'acts hieff')
+    hi.textContent = n.hieff ? '\u2b22' : '\u2b21'
+    hi.dataset.tip = n.hieff ? 'Not high effort after all' : 'Mark as high effort'
+    hi.onclick = e => { e.stopPropagation()
+      n.hieff = !n.hieff; n.updatedAt = Date.now(); saveNotes() }
+    el.appendChild(hi)
   }
   const t = elem('div', 'title'); t.textContent = noteTitle(n) || '(empty plan)'
   el.appendChild(t)
@@ -3267,7 +3278,7 @@ function qcCol(box, list, key) {
 }
 
 // everybody who holds a card anywhere on the board, the busiest first, each on their own
-// side: QA is the three logins the page already knows, everyone else builds
+// side: QA is the logins in the QA set, everyone else builds
 function qcPeople(qa) {
   const by = new Map()
   for (const r of rowsCache) for (const p of [...r.devs, ...r.qas]) {
