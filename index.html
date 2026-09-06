@@ -982,6 +982,7 @@ async function finishSignIn() {
     if (!res.ok || !j.access_token)
       throw new Error(j.error_description || j.error || 'the exchange answered HTTP ' + res.status)
     localStorage.setItem('ghToken', j.access_token)
+    sessionStorage.removeItem('ghAutoSignin')   // a finished login re-arms the silent bounce
   } catch (e) {
     return gateFail('Could not finish the sign-in: ' + e.message)
   } finally {
@@ -1005,6 +1006,7 @@ function paintWho() {
 function signOut() {
   localStorage.removeItem('ghToken')
   localStorage.removeItem(CACHE)         // the next person here must not find these numbers
+  sessionStorage.setItem('ghAutoSignin', '1')  // a chosen sign-out must not bounce right back in
   location.href = REDIRECT
 }
 
@@ -3048,6 +3050,14 @@ function paint(when) {
 let loading = false
 async function load(force) {
   if (!token()) {
+    // the token does not expire, it gets evicted (Safari purges localStorage after a week
+    // away), and an already-authorized login is a silent bounce through GitHub — so take
+    // the bounce without asking; the flag keeps a declined login from bouncing forever
+    if (CONFIGURED && !sessionStorage.getItem('ghAutoSignin')) {
+      sessionStorage.setItem('ghAutoSignin', '1')
+      signIn()
+      return
+    }
     gateOn()
     $('signout').hidden = true
     $('who').hidden = true
