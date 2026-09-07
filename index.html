@@ -259,12 +259,12 @@
   .tabs button.on { color:var(--ink); border-bottom-color:var(--ink); }
   /* priorities: four boxes, effort across, impact down */
   .quadWrap { display:grid; grid-template-columns:18px 1fr; gap:8px; }
-  .axisX { display:flex; align-items:center; gap:8px; font-size:11px; color:var(--muted);
+  .axisX { display:flex; align-items:center; gap:8px; font-size:12px; color:var(--muted);
           margin-bottom:6px; }
   .axisX .hline { flex:1; height:0; border-top:1.5px solid var(--soft-muted); position:relative; }
   .axisX .hline::after { content:''; position:absolute; right:-1px; top:-4.5px;
           border:4px solid transparent; border-left:7px solid var(--soft-muted); }
-  .axisY { display:flex; flex-direction:column; align-items:center; font-size:11px;
+  .axisY { display:flex; flex-direction:column; align-items:center; font-size:12px;
           color:var(--muted); padding-top:24px; }
   .axisY span { writing-mode:vertical-rl; transform:rotate(180deg); letter-spacing:.4px; }
   .axisY .vline { flex:1; width:0; border-left:1.5px solid var(--soft-muted); margin:8px 0;
@@ -275,16 +275,16 @@
   #planline { position:relative; height:36px; margin:2px 0 14px; }
   #planline::before { content:''; position:absolute; left:0; right:0; top:24px;
           border-top:1.5px solid var(--soft-muted); }
-  #planline .pl-today, #planline .pl-end { position:absolute; top:28px; font-size:10px;
+  #planline .pl-today, #planline .pl-end { position:absolute; top:28px; font-size:11px;
           color:var(--soft-muted); }
   #planline .pl-today { left:0; } #planline .pl-end { right:0; }
-  #planline .plflag { position:absolute; top:4px; transform:translateX(-50%); font-size:13px;
+  #planline .plflag { position:absolute; top:4px; transform:translateX(-50%); font-size:15px;
           cursor:grab; touch-action:none; }
   #planline .plflag:active { cursor:grabbing; }
   .qnote.lit { outline:2px solid #8250df; outline-offset:-1px; }
   #planline .plflag.late { filter:grayscale(1); }
   #planline .pltick { position:absolute; top:20px; height:9px; border-left:1px solid var(--hairline); }
-  #planline .pltick b { position:absolute; top:9px; left:-8px; font-size:9px; font-weight:400;
+  #planline .pltick b { position:absolute; top:9px; left:-8px; font-size:10px; font-weight:400;
           color:var(--soft-muted); }
   #planline .plwe { position:absolute; top:21px; height:7px; background:#dfe4e9; }
   .quadGrid { display:grid; grid-template-columns:1fr 1fr; gap:10px; }
@@ -293,7 +293,7 @@
           background:#fff1e5; }
   #qtoday .qhead { color:#bc4c00; }
   #qtoday .qnote { border-color:#f5a26b; }
-  .qnote .acts.today { transform:none; font-size:13px; opacity:0; }
+  .qnote .acts.today { transform:none; font-size:15px; opacity:0; }
   .qnote:hover .acts.today, .qnote.today .acts.today { opacity:1; }
   .qnote.today .acts.today { color:#bc4c00; }
   .qcell, #qtray { border:1px solid var(--hairline); border-radius:10px; padding:10px;
@@ -313,42 +313,42 @@
   .qcell[data-e="slow"][data-i="low"]  .qhead { color:#57606a; }
   .qbody { display:flex; flex-wrap:wrap; gap:8px; align-items:flex-start; margin-top:8px; }
   .qcell.over, #qtray.over { outline:2px solid var(--focus); outline-offset:-2px; }
-  .qhead { font-size:12px; font-weight:500; color:var(--ink); }
+  .qhead { font-size:13px; font-weight:500; color:var(--ink); }
   .qhead .muted { font-weight:400; margin-left:6px; }
   #qtray { margin-top:10px; min-height:56px; border-style:dashed; background:var(--canvas); }
   .qnote { background:var(--canvas); border:1px solid var(--hairline); border-radius:8px;
-          padding:6px 9px; cursor:grab; font-size:12px; width:fit-content; max-width:100%; }
+          padding:8px 11px; cursor:grab; font-size:13px; width:fit-content; max-width:100%; }
   .qnote:active { cursor:grabbing; }
   .qcell { position:relative; }
   .qwm { position:absolute; inset:0; display:flex; align-items:center; justify-content:center;
-          font-size:30px; font-weight:600; letter-spacing:.5px; color:rgba(24,29,38,.10);
+          font-size:34px; font-weight:600; letter-spacing:.5px; color:rgba(24,29,38,.10);
           pointer-events:none; user-select:none; z-index:0; }
   .qbody { position:relative; z-index:1; }
   .qcell:hover .qwm { color:rgba(24,29,38,.20); }
   .qwm[hidden] { display:none; }    /* display:flex would out-rank the hidden attribute */
   .qnote .title { color:var(--ink); font-weight:500; word-break:break-word; }
   .qnote .meta { display:flex; flex-wrap:wrap; gap:5px; margin-top:4px; }
-  .qnote .chip { font-size:10px; padding:0 7px; }
+  .qnote .chip { font-size:11px; padding:1px 8px; }
   .qnote .acts { float:right; margin-left:6px; cursor:pointer; color:var(--soft-muted);
-          font-size:12px; display:inline-block; transform:scaleX(-1); }
+          font-size:13px; display:inline-block; transform:scaleX(-1); }
   .qnote .acts:hover { color:var(--ink); }
   /* high effort: a thicker, darker border, marked by the hexagon that shows on hover */
-  .qnote.hieff { border-width:2px; border-color:var(--ink); padding:5px 8px; }
+  .qnote.hieff { border-width:2px; border-color:var(--ink); padding:7px 10px; }
   .qnote .acts.hieff { transform:none; opacity:0; }
   .qnote:hover .acts.hieff, .qnote.hieff .acts.hieff { opacity:1; }
   /* the right lane: what Eddie owes himself, next to the board but never on it */
   .planCols { display:flex; gap:12px; align-items:stretch; }
   .planMain { flex:1; min-width:0; }
-  #myLane { flex:0 0 250px; display:flex; flex-direction:column; padding:10px;
+  #myLane { flex:0 0 275px; display:flex; flex-direction:column; padding:10px;
           border:1px solid var(--hairline); border-radius:10px; background:var(--canvas); }
   #myLane[hidden] { display:none; }    /* display:flex would out-rank the hidden attribute */
   #myLane.over { outline:2px solid var(--focus); outline-offset:-2px; }
   #myLane .qhead { flex:0 0 auto; }
-  #myAdd { width:100%; margin:8px 0 0; font-size:12px; }
+  #myAdd { width:100%; margin:8px 0 0; font-size:13px; }
   #myLane .qbody { flex:1 1 auto; flex-direction:column; flex-wrap:nowrap; align-items:stretch;
           overflow-y:auto; gap:6px; }
   #myLane .qnote { width:auto; }
-  #myLane .qnote .acts.tick { transform:none; font-size:13px; }
+  #myLane .qnote .acts.tick { transform:none; font-size:15px; }
   @media (max-width:900px) { .planCols { flex-direction:column; }
           #myLane { flex:0 0 auto; max-height:320px; } }
   /* quick create: five columns, and the first three are chosen by the mouse passing over */
