@@ -3091,6 +3091,21 @@ function paint(when) {
 }
 
 let loading = false
+/* Remembering the login only helps the second refresh: the first one after a sign-in has
+   nothing stored and the cache still answers, so the page paints as a stranger and every
+   click says only two people may write. One query, sent only when nobody is known yet, buys
+   the name before anything is drawn. */
+async function whoAmI() {
+  if (!token() || me) return
+  try {
+    const d = await gql('query{ viewer{ login avatarUrl(size:40) } }')
+    me = d.viewer.login
+    myFace = d.viewer.avatarUrl
+    rememberWho()
+    paintWho()
+  } catch (e) {}
+}
+
 async function load(force) {
   if (!token()) {
     gateOn()
@@ -3104,6 +3119,7 @@ async function load(force) {
   const cached = readCache()
   if (!force && cached && cached.closedMs >= closedMs && Date.now() - cached.at < REFRESH_MS) {
     rowsCache = cached.rows
+    await whoAmI()                       // the paint decides what to show by who is here
     paint(cached.at)
     syncNotes(true)
     return
