@@ -913,6 +913,21 @@ const clock = ms => new Date(ms).toLocaleTimeString('en-GB',
 let rate = null                          // what GitHub last told us about the hourly budget
 let me = null                            // the login GitHub says we are signed in as
 let myFace = null                        // that login's avatar, off the same query
+/* The login rides in on a GraphQL answer, and a refresh inside the cache window sends no
+   query, so the page used to come back not knowing who was holding the token: no face in the
+   header, no lane, no write controls. The login is kept next to the last 8 characters of the
+   token that earned it. A different token in the box does not match, so it restores nobody
+   and waits for GitHub to say the name. */
+const WHO_KEY = 'ghWho'
+const whoTag = t => String(t || '').slice(-8)
+function rememberWho() {
+  if (me) localStorage.setItem(WHO_KEY,
+    JSON.stringify({ tag: whoTag(token()), login: me, face: myFace }))
+}
+try {
+  const w = JSON.parse(localStorage.getItem(WHO_KEY) || 'null')
+  if (w && token() && w.tag === whoTag(token())) { me = w.login; myFace = w.face || null }
+} catch (e) {}
 /* Two people own the releases and the plan, and everybody else reads them. Quick Create is
    deliberately outside this: filing a card is what the rest of the team is here for, and a
    card is additive, while a moved date, a closed release, a renamed milestone or an edited
@@ -1011,8 +1026,11 @@ function paintWho() {
   $('whoFace').hidden = !myFace
 }
 
+paintWho()
+
 function signOut() {
   localStorage.removeItem('ghToken')
+  localStorage.removeItem(WHO_KEY)
   localStorage.removeItem(CACHE)         // the next person here must not find these numbers
   location.href = REDIRECT
 }
@@ -1027,7 +1045,7 @@ async function ask(query, name, ms, after) {
   })
   // revoked, or the org withdrew the app; either way the way back is a fresh sign-in
   if (res.status === 401) {
-    localStorage.removeItem('ghToken')
+    localStorage.removeItem('ghToken'); localStorage.removeItem(WHO_KEY)
     throw new Error('GitHub rejected the sign-in. Sign in again.')
   }
   const json = await res.json()
@@ -1035,6 +1053,7 @@ async function ask(query, name, ms, after) {
   if (json.data && json.data.viewer) {
     me = json.data.viewer.login
     myFace = json.data.viewer.avatarUrl
+    rememberWho()
     paintWho()
   }
   if (json.errors) {
@@ -3265,7 +3284,7 @@ async function gql(query, variables) {
   const res = await fetch('https://api.github.com/graphql', { method:'POST', cache:'no-store',
     headers:{ 'Authorization':'Bearer ' + token(), 'Content-Type':'application/json' },
     body: JSON.stringify({ query, variables }) })
-  if (res.status === 401) { localStorage.removeItem('ghToken')
+  if (res.status === 401) { localStorage.removeItem('ghToken'); localStorage.removeItem(WHO_KEY)
                             throw new Error('GitHub rejected the sign-in. Sign in again.') }
   const j = await res.json().catch(() => ({}))
   if (j.errors) throw new Error(j.errors[0].message)
