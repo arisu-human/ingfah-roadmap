@@ -288,6 +288,14 @@
           color:var(--soft-muted); }
   #planline .plwe { position:absolute; top:21px; height:7px; background:#dfe4e9; }
   .quadGrid { display:grid; grid-template-columns:1fr 1fr; gap:10px; }
+  /* today: the cards picked for today leave the board and sit in one row on top */
+  #qtoday { border:2px solid #bc4c00; border-radius:10px; padding:10px; margin-bottom:12px;
+          background:#fff1e5; }
+  #qtoday .qhead { color:#bc4c00; }
+  #qtoday .qnote { border-color:#f5a26b; }
+  .qnote .acts.today { transform:none; font-size:13px; opacity:0; }
+  .qnote:hover .acts.today, .qnote.today .acts.today { opacity:1; }
+  .qnote.today .acts.today { color:#bc4c00; }
   .qcell, #qtray { border:1px solid var(--hairline); border-radius:10px; padding:10px;
           min-height:150px; background:var(--surface-soft); }
   /* the board owns the screen: two rows split what the viewport gives */
@@ -656,6 +664,7 @@
   <div id="planline"><span class="pl-today">today</span><span class="pl-end">90d</span></div>
   <div class="planCols">
    <div class="planMain">
+  <div id="qtoday" hidden><div class="qhead">Today<span class="muted" id="todayCount"></span></div><div class="qbody"></div></div>
   <div class="quadWrap">
     <div class="axisY"><span>high impact</span><i class="vline"></i><span>low impact</span></div>
     <div>
@@ -2086,7 +2095,7 @@ const relDue = d => d < 0 ? Math.abs(d) + 'd late' : d === 0 ? 'today'
   : d < 7 ? d + 'd' : d < 28 ? Math.floor(d / 7) + 'w' : '>4w'
 
 function qnoteEl(n) {
-  const el = elem('div', 'qnote' + (n.hieff ? ' hieff' : ''))
+  const el = elem('div', 'qnote' + (n.hieff ? ' hieff' : '') + (n.today ? ' today' : ''))
   el.dataset.nid = n.id
   if (canWrite()) {
     el.draggable = true
@@ -2104,6 +2113,15 @@ function qnoteEl(n) {
     hi.onclick = e => { e.stopPropagation()
       n.hieff = !n.hieff; n.updatedAt = Date.now(); saveNotes() }
     el.appendChild(hi)
+    // the tick pulls the card off the board and into today's row
+    if (n.lane !== 'me') {
+      const td = elem('span', 'acts today')
+      td.textContent = n.today ? '\u2611' : '\u2610'
+      td.dataset.tip = n.today ? 'Back on the board' : 'Focus on it today'
+      td.onclick = e => { e.stopPropagation()
+        n.today = !n.today; n.updatedAt = Date.now(); saveNotes() }
+      el.appendChild(td)
+    }
   }
   const t = elem('div', 'title'); t.textContent = noteTitle(n) || '(empty plan)'
   el.appendChild(t)
@@ -2252,15 +2270,23 @@ function drawQuads() {
   const all = liveNotes().filter(n => !isArch(n))
   const live = all.filter(n => n.lane !== 'me')
   drawLane(all.filter(n => n.lane === 'me'))
+  const byDue = (a, b) => (a.due || '9999').localeCompare(b.due || '9999')
+                          || (b.createdAt || 0) - (a.createdAt || 0)
+  const today = live.filter(n => n.today).sort(byDue)
+  const board = live.filter(n => !n.today)
+  const tbox = document.querySelector('#qtoday .qbody')
+  tbox.textContent = ''
+  $('qtoday').hidden = !today.length
+  $('todayCount').textContent = today.length + (today.length === 1 ? ' card' : ' cards')
+  for (const n of today) tbox.appendChild(qnoteEl(n))
   let unrated = 0
   for (const cell of document.querySelectorAll('.qcell, #qtray')) {
     const body = cell.querySelector('.qbody')
     body.textContent = ''
     const list = (cell.id === 'qtray'
-      ? live.filter(n => !(n.effort && n.impact))
-      : live.filter(n => n.effort === cell.dataset.e && n.impact === cell.dataset.i))
-      .sort((a, b) => (a.due || '9999').localeCompare(b.due || '9999')
-                      || (b.createdAt || 0) - (a.createdAt || 0))
+      ? board.filter(n => !(n.effort && n.impact))
+      : board.filter(n => n.effort === cell.dataset.e && n.impact === cell.dataset.i))
+      .sort(byDue)
     if (cell.id === 'qtray') unrated = list.length
     for (const n of list) body.appendChild(qnoteEl(n))
   }
@@ -3494,6 +3520,7 @@ for (const cell of document.querySelectorAll('.qcell, #qtray, #myLane')) {
     if (!canWrite()) return
     const n = notes.find(x => x.id === e.dataTransfer.getData('text/plain'))
     if (!n) return
+    delete n.today                            // a card dragged back to the board is off today
     if (cell.id === 'myLane') { n.lane = 'me'; delete n.effort; delete n.impact }
     else if (cell.id === 'qtray') { delete n.lane; delete n.effort; delete n.impact }
     else { delete n.lane; n.effort = cell.dataset.e; n.impact = cell.dataset.i }
