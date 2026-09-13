@@ -617,7 +617,7 @@
   <div class="bar">
     <button id="zoomOut" title="Zoom out">&minus;</button>
     <button id="zoomIn" title="Zoom in">+</button>
-    <button id="fit" title="A week back, out to the last future release">Today</button>
+    <button id="fit" title="Back to today, a week in from the left edge, at the current zoom">Today</button>
     <button id="fitAllTime" title="Fit every release on screen">All</button>
     <span class="chip" id="legend">Legend</span>
     <span class="chip" id="help">?</span>
@@ -1880,6 +1880,16 @@ function showFuture(shown, zoom) {
   const w = futureWindow(rows, zoom)
   timeline.setWindow(w.start, w.end, { animation:false })
 }
+// Today keeps the zoom and only slides the window, so today lands a week in from the left,
+// where the first draw put it. It used to refit out to the last future release instead, and one
+// parking milestone dated 2099 stretched that to seventy years: today became a 7px sliver on
+// the far left and the button looked as if it went anywhere but today.
+function showToday() {
+  if (!timeline) return
+  const w = timeline.getWindow()
+  const start = bkk(plus(todayISO(), -7))
+  timeline.setWindow(start, new Date(+start + (w.end - w.start)), { animation:false })
+}
 
 /* ---- notes: the pile before the plan ----------------------------------------------
    A note is what a card is before anyone has decided it is work: an idea, a requirement
@@ -2976,7 +2986,7 @@ document.addEventListener('mousemove', e => {
 /* ---- buttons ---- */
 $('zoomIn').onclick  = () => timeline && timeline.zoomIn(0.4)
 $('zoomOut').onclick = () => timeline && timeline.zoomOut(0.4)
-$('fit').onclick     = () => showFuture()
+$('fit').onclick     = () => showToday()
 $('fitAllTime').onclick = () => timeline && timeline.fit()
 $('older').onclick = () => {
   if (windowDays >= 3650) { windowDays = 14; closedMs = 20; load(true); return }
