@@ -266,6 +266,7 @@
   #planline .plflag:active { cursor:grabbing; }
   .qnote.lit { outline:2px solid #8250df; outline-offset:-1px; }
   #planline .plflag.late { filter:grayscale(1); }
+  #flagsToggle:not(.on) { filter:grayscale(1); opacity:.55; }   /* flags folded away */
   #planline .pltick { position:absolute; top:20px; height:9px; border-left:1px solid var(--hairline); }
   #planline .pltick b { position:absolute; top:9px; left:-8px; font-size:10px; font-weight:400;
           color:var(--soft-muted); }
@@ -622,6 +623,7 @@
     <span class="chip" id="legend">Legend</span>
     <span class="chip" id="help">?</span>
     <button id="sprintBtn" title="Highlight the current sprint on the chart">Sprint</button>
+    <button id="flagsToggle" title="Show or hide the plan flags on the chart">🚩</button>
     <span id="sprintBox" hidden>
       <input id="sprintFrom" type="text" inputmode="numeric" placeholder="dd/mm/yyyy" class="dmy">
       <span class="muted">to</span>
@@ -651,8 +653,7 @@
     <span class="muted" id="quadCount"></span>
     <span class="sep"></span>
     <span class="muted" id="noteSync"></span>
-    <button id="flagsToggle" style="margin-left:auto" data-tip="Show or hide the 90-day flag line">🚩</button>
-    <button id="ideaNew" class="primary">+ Plan</button>
+    <button id="ideaNew" class="primary" style="margin-left:auto">+ Plan</button>
   </div>
   <div id="planline"><span class="pl-today">today</span><span class="pl-end">90d</span></div>
   <div class="planCols">
@@ -1746,6 +1747,7 @@ function placeFlags() {
     timeline.dom.center.parentNode.appendChild(flagsEl)
   }
   flagsEl.textContent = ''
+  if (localStorage.getItem('planFlags') === 'off') return
   const plans = liveNotes().filter(n => !isArch(n) && n.due)
   if (!plans.length) return
   const w = timeline.getWindow()
@@ -3536,12 +3538,13 @@ $('archClear').onclick = () => {
   saveNotes()
 }
 $('tabQuad').onclick = () => showTab('plan')
-// the flag line is handy but busy; one click folds it away and the choice sticks per browser
-$('planline').hidden = localStorage.getItem('planFlags') === 'off'
+// plan flags on the chart are handy but busy; one click folds them away, the choice sticks per browser
+$('flagsToggle').classList.toggle('on', localStorage.getItem('planFlags') !== 'off')
 $('flagsToggle').onclick = () => {
-  const off = !$('planline').hidden
-  $('planline').hidden = off
-  localStorage.setItem('planFlags', off ? 'off' : 'on')
+  const on = !$('flagsToggle').classList.contains('on')
+  $('flagsToggle').classList.toggle('on', on)
+  localStorage.setItem('planFlags', on ? 'on' : 'off')
+  placeFlags()
 }
 $('tabQuick').onclick = () => showTab('quick')
 $('qcCreate').onclick = createQuick
