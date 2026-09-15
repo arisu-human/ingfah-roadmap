@@ -318,6 +318,8 @@
   .qnote .acts.hieff, .qnote .acts.brief, .qnote .acts.today { opacity:0; }
   .qnote:hover .acts.hieff, .qnote:hover .acts.brief, .qnote:hover .acts.today { opacity:.35; }
   .qnote .acts.on, .qnote:hover .acts.on { opacity:1; }
+  .qnote .acts.pen { transform:scaleX(-1); filter:none; opacity:1; color:var(--soft-muted); }
+  .qnote .acts.pen:hover { color:var(--ink); }
   /* high effort: a thicker, darker border, marked by the flexed arm that shows on hover */
   .qnote.hieff { border-width:2px; border-color:var(--ink); padding:7px 10px; }
   /* owed to the Design Team: a pink card, a dashed edge, and the chip that names it. The
@@ -2123,7 +2125,7 @@ function qnoteEl(n) {
     el.ondblclick = ev => { ev.stopPropagation(); ideaModal(true, n) }
     el.ondragstart = e => { e.dataTransfer.setData('text/plain', n.id)
                             e.dataTransfer.effectAllowed = 'move' }
-    const pen = elem('span', 'acts on'); pen.textContent = '\u270f\ufe0f'
+    const pen = elem('span', 'acts pen'); pen.textContent = '\u270e'
     pen.dataset.tip = 'Edit this plan'
     pen.onclick = e => { e.stopPropagation(); ideaModal(true, n) }
     el.appendChild(pen)
