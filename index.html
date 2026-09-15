@@ -278,9 +278,6 @@
   #qtoday .qhead { color:#bc4c00; }
   #qtoday .qnote { border-color:#f5a26b; }
   #qtoday .qnote.brief { border-color:#e59ac4; }
-  .qnote .acts.today { transform:none; font-size:15px; opacity:0; }
-  .qnote:hover .acts.today, .qnote.today .acts.today { opacity:1; }
-  .qnote.today .acts.today { color:#bc4c00; }
   .qcell, #qtray { border:1px solid var(--hairline); border-radius:10px; padding:10px;
           min-height:150px; background:var(--surface-soft); }
   /* the board owns the screen: two rows split what the viewport gives */
@@ -314,20 +311,19 @@
   .qnote .title { color:var(--ink); font-weight:500; word-break:break-word; }
   .qnote .meta { display:flex; flex-wrap:wrap; gap:5px; margin-top:4px; }
   .qnote .chip { font-size:11px; padding:1px 8px; }
-  .qnote .acts { float:right; margin-left:6px; cursor:pointer; color:var(--soft-muted);
-          font-size:13px; display:inline-block; transform:scaleX(-1); }
-  .qnote .acts:hover { color:var(--ink); }
-  /* high effort: a thicker, darker border, marked by the hexagon that shows on hover */
+  /* the marks on a card: grey until hovered, full colour once switched on */
+  .qnote .acts { float:right; margin-left:6px; cursor:pointer; font-size:13px;
+          display:inline-block; filter:grayscale(1); opacity:.35; }
+  .qnote .acts:hover, .qnote .acts.on { filter:none; opacity:1; }
+  .qnote .acts.hieff, .qnote .acts.brief, .qnote .acts.today { opacity:0; }
+  .qnote:hover .acts.hieff, .qnote:hover .acts.brief, .qnote:hover .acts.today { opacity:.35; }
+  .qnote .acts.on, .qnote:hover .acts.on { opacity:1; }
+  /* high effort: a thicker, darker border, marked by the flexed arm that shows on hover */
   .qnote.hieff { border-width:2px; border-color:var(--ink); padding:7px 10px; }
-  .qnote .acts.hieff { transform:none; opacity:0; }
-  .qnote:hover .acts.hieff, .qnote.hieff .acts.hieff { opacity:1; }
   /* owed to the Design Team: a pink card, a dashed edge, and the chip that names it. The
      mark comes off once the brief has happened, so a plain card is one nobody is waiting on. */
   .qnote.brief { background:#ffeff7; border-style:dashed; border-color:#e59ac4; }
   .qnote.brief.hieff { border-color:#bf3989; }
-  .qnote .acts.brief { transform:none; opacity:0; }
-  .qnote:hover .acts.brief, .qnote.brief .acts.brief { opacity:1; }
-  .qnote.brief .acts.brief { color:#bf3989; }
   .chip.briefpill { background:#ffeff7; color:#bf3989; border-color:#e59ac4; }
   /* the right lane: what Eddie owes himself, next to the board but never on it */
   .planCols { display:flex; gap:12px; align-items:stretch; }
@@ -2127,28 +2123,28 @@ function qnoteEl(n) {
     el.ondblclick = ev => { ev.stopPropagation(); ideaModal(true, n) }
     el.ondragstart = e => { e.dataTransfer.setData('text/plain', n.id)
                             e.dataTransfer.effectAllowed = 'move' }
-    const pen = elem('span', 'acts'); pen.textContent = '\u270e'
+    const pen = elem('span', 'acts on'); pen.textContent = '\u270f\ufe0f'
     pen.dataset.tip = 'Edit this plan'
     pen.onclick = e => { e.stopPropagation(); ideaModal(true, n) }
     el.appendChild(pen)
-    // the hexagon fills when the plan is high effort, and the card takes the thicker border
-    const hi = elem('span', 'acts hieff')
-    hi.textContent = n.hieff ? '\u2b22' : '\u2b21'
+    // the arm lights up when the plan is high effort, and the card takes the thicker border
+    const hi = elem('span', 'acts hieff' + (n.hieff ? ' on' : ''))
+    hi.textContent = '\ud83d\udcaa'
     hi.dataset.tip = n.hieff ? 'Not high effort after all' : 'Mark as high effort'
     hi.onclick = e => { e.stopPropagation()
       n.hieff = !n.hieff; n.updatedAt = Date.now(); saveNotes() }
     el.appendChild(hi)
-    // the diamond fills while the plan still owes the Design Team a brief
-    const br = elem('span', 'acts brief')
-    br.textContent = n.brief ? '\u2666' : '\u2662'
+    // the palette lights up while the plan still owes the Design Team a brief
+    const br = elem('span', 'acts brief' + (n.brief ? ' on' : ''))
+    br.textContent = '\ud83c\udfa8'
     br.dataset.tip = n.brief ? 'Briefed, take the mark off' : 'To brief with the Design Team'
     br.onclick = e => { e.stopPropagation()
       n.brief = !n.brief; n.updatedAt = Date.now(); saveNotes() }
     el.appendChild(br)
-    // the tick pulls the card off the board and into today's row
+    // the target pulls the card off the board and into today's row
     if (n.lane !== 'me') {
-      const td = elem('span', 'acts today')
-      td.textContent = n.today ? '\u2611' : '\u2610'
+      const td = elem('span', 'acts today' + (n.today ? ' on' : ''))
+      td.textContent = '\ud83c\udfaf'
       td.dataset.tip = n.today ? 'Back on the board' : 'Focus on it today'
       td.onclick = e => { e.stopPropagation()
         n.today = !n.today; n.updatedAt = Date.now(); saveNotes() }
@@ -2200,7 +2196,7 @@ function qnoteEl(n) {
 function myNoteEl(n) {
   const el = qnoteEl(n)
   const tick = elem('span', 'acts tick')
-  tick.textContent = '\u2610'
+  tick.textContent = '\u2705'
   tick.dataset.tip = 'Mark it done'
   tick.onclick = e => { e.stopPropagation()
     n.done = true; n.updatedAt = Date.now(); saveNotes() }
