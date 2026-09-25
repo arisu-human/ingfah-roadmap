@@ -1259,7 +1259,7 @@ function applyPlan(rows) {
   return rows
 }
 
-// the ticks live in this browser, so the button is only ever offered when there are some
+// the button is only ever offered when there are ticks to clear
 function paintTicks() {
   const b = $('ticksClear')
   if (b) b.disabled = !thisSprint.size
@@ -1268,6 +1268,7 @@ function paintTicks() {
 function clearTicks() {
   thisSprint.clear()
   localStorage.removeItem('thisSprint')
+  planChanged()
   applyPlan(rowsCache)
   drawTable(); drawTimeline(rowsCache)
 }
@@ -1277,6 +1278,7 @@ function toggleSprint(name) {
   if (row && row.state === 'closed') return       // closed is a fact, not a plan
   if (thisSprint.has(name)) thisSprint.delete(name); else thisSprint.add(name)
   localStorage.setItem('thisSprint', JSON.stringify([...thisSprint]))
+  planChanged()
   applyPlan(rowsCache)
   drawTable(); drawTimeline(rowsCache)
 }
@@ -1811,6 +1813,7 @@ function saveSprint(v) {
   sprint = v
   lastSprintW = -1                       // new dates, so the label has to be measured again
   if (v) localStorage.setItem('sprint', JSON.stringify(v)); else localStorage.removeItem('sprint')
+  planChanged()
   placeSprint()
   // unticked releases queue up after the sprint, so moving it moves them
   if (rowsCache.length) { applyPlan(rowsCache); drawTable(); drawTimeline(rowsCache) }
@@ -1909,6 +1912,28 @@ let notes = []
 try { notes = JSON.parse(localStorage.getItem('plannerNotes') || '[]') } catch (e) { notes = [] }
 let notesIssue = null                    // the issue number the pile is stored in
 let notesPush = null, notesBusy = false, notesDirty = false
+// The sprint dates and the ticks ride in the same issue, so everyone signed in sees one plan.
+// They are one unit: the newest edit of either wins the whole plan, by planAt.
+let planAt = +localStorage.getItem('planAt') || 0
+const planNow = () => ({ at: planAt, sprint, ticks: [...thisSprint] })
+function planChanged() {
+  planAt = Date.now()
+  localStorage.setItem('planAt', planAt)
+  notesDirty = true
+  clearTimeout(notesPush)
+  notesPush = setTimeout(syncNotes, 2000)
+}
+function adoptPlan(p) {
+  planAt = p.at
+  localStorage.setItem('planAt', planAt)
+  sprint = p.sprint || null
+  if (sprint) localStorage.setItem('sprint', JSON.stringify(sprint)); else localStorage.removeItem('sprint')
+  thisSprint = new Set((p.ticks || []).map(cleanTitle))
+  localStorage.setItem('thisSprint', JSON.stringify([...thisSprint]))
+  lastSprintW = -1
+  if (timeline) placeSprint()
+  if (rowsCache.length) { applyPlan(rowsCache); drawTable(); drawTimeline(rowsCache) }
+}
 
 const noteId = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 7)
 const liveNotes = () => notes.filter(n => !n.deleted)
@@ -1985,6 +2010,15 @@ function notesBody(list) {
     + (live.length ? live.map(n => '- ' + (n.ms ? '**[' + cleanTitle(n.ms) + ']** ' : '')
         + noteTitle(n) + (isArch(n) ? ' _(archived)_' : '')).join('\n') : '_No notes._')
     + '\n\n```json\n' + JSON.stringify(list, null, 1) + '\n```\n'
+    + (sprint ? '\n**Sprint:** ' + sprint.from + ' to ' + sprint.to : '')
+    + (thisSprint.size ? '\n**This Sprint:** ' + [...thisSprint].join(', ') : '')
+    + '\n\n```json plan\n' + JSON.stringify(planNow()) + '\n```\n'
+}
+// its own fence tag, so the notes regex above never reads it and an old tab only drops it
+const planFromBody = body => {
+  const m = (body || '').match(/```json plan\n([\s\S]*?)\n```/)
+  if (!m) return null
+  try { return JSON.parse(m[1]) } catch (e) { return null }
 }
 
 const notesFromBody = body => {
@@ -2005,7 +2039,10 @@ async function syncNotes(quiet) {
     const j = await res.json().catch(() => ({}))
     if (!res.ok) throw new Error('reading the notes issue: HTTP ' + res.status)
     const merged = mergeNotes(notes, notesFromBody(j.body))
+    const theirPlan = planFromBody(j.body)
+    if (theirPlan && theirPlan.at > planAt) adoptPlan(theirPlan)
     const changed = JSON.stringify(merged) !== JSON.stringify(notesFromBody(j.body))
+      || !theirPlan || theirPlan.at < planAt
     notes = merged
     localStorage.setItem('plannerNotes', JSON.stringify(notes))
     drawNotes()
