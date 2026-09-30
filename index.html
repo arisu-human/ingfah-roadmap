@@ -2488,8 +2488,9 @@ function askConfirm(r, newDue) {
     + ' is closed in every repo, so there is no open milestone to move.', 'err') }
   if (newDue === r.due) { cancelAsk(true)
     return toast('Dropped back on ' + pretty(newDue) + ', so nothing changed.', 'info') }
-  renameTo = r.due && r.title.startsWith(stampOf(r.due))
-    ? stampOf(newDue) + r.title.slice(8) : null
+  // any 8-digit stamp is rewritten, not only one equal to the old due date: a name that had
+  // already drifted (dated 30th, due 29th) would otherwise never be corrected by a move
+  renameTo = /^\d{8}/.test(r.title) ? stampOf(newDue) + r.title.slice(8) : null
   renameOn = !!renameTo               // the move and the rename are one act, not two
   paintRename()
   pending = { due:newDue, targets, titleBefore:r.title }
