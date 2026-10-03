@@ -117,9 +117,11 @@ what gets private repos into the GraphQL reads.
 
 ## What this does not do
 
-- **No refresh handling.** OAuth app tokens do not expire. If the token stops working — the
-  user revoked it, or the org withdrew the app — the page clears it and shows the sign-in
-  again. That is the whole recovery path.
+- **Refresh is a silent re-sign-in.** OAuth app tokens do not expire. If one stops working
+  (revoked, wiped by the browser, org withdrew the app) and this browser has signed in before
+  (`ghSeen` in localStorage), the page sends the user round GitHub's authorize URL itself;
+  GitHub approves an already authorised app with no prompt. Once a minute at most, so a refusal
+  lands on the button instead of looping. Sign out clears `ghSeen`.
 - **Sign out is local.** It drops the token and the cached rows from this browser. It does not
   revoke the grant on GitHub's side; that lives at
   <https://github.com/settings/applications>.

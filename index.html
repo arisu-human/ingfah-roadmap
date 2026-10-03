@@ -948,6 +948,7 @@ const b64url = buf => btoa(String.fromCharCode(...new Uint8Array(buf)))
 const randStr = n => b64url(crypto.getRandomValues(new Uint8Array(n)))
 const s256 = async s => b64url(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(s)))
 const CONFIGURED = Boolean(CLIENT_ID && EXCHANGE)
+if (localStorage.getItem('ghToken')) localStorage.setItem('ghSeen', '1')   // already signed in before this shipped
 
 // the signed out page is the whole viewport, so it goes on and off as one class
 const gateOn  = () => $('gate').classList.add('on')
@@ -962,6 +963,18 @@ async function signIn() {
     client_id: CLIENT_ID, redirect_uri: REDIRECT, scope: SCOPES, state,
     code_challenge: await s256(verifier), code_challenge_method: 'S256'
   })
+}
+
+// OAuth app tokens never expire, so a dropped session means the token was revoked or the
+// browser lost it. GitHub re-approves an already authorised app with no prompt, so a person who
+// has signed in before is sent straight round again instead of being shown the button.
+// ponytail: one silent try a minute, so a refusal shows the button instead of looping
+function autoSignIn() {
+  if (!CONFIGURED || !localStorage.getItem('ghSeen')) return false
+  if (Date.now() - (+sessionStorage.getItem('ghAuto') || 0) < 60e3) return false
+  sessionStorage.setItem('ghAuto', Date.now())
+  signIn()
+  return true
 }
 
 function gateFail(msg) {
@@ -998,6 +1011,7 @@ async function finishSignIn() {
     if (!res.ok || !j.access_token)
       throw new Error(j.error_description || j.error || 'the exchange answered HTTP ' + res.status)
     localStorage.setItem('ghToken', j.access_token)
+    localStorage.setItem('ghSeen', '1')
   } catch (e) {
     return gateFail('Could not finish the sign-in: ' + e.message)
   } finally {
@@ -1022,6 +1036,7 @@ paintWho()
 
 function signOut() {
   localStorage.removeItem('ghToken')
+  localStorage.removeItem('ghSeen')      // a deliberate sign out must not bounce straight back in
   localStorage.removeItem(WHO_KEY)
   localStorage.removeItem(CACHE)         // the next person here must not find these numbers
   location.href = REDIRECT
@@ -3158,6 +3173,7 @@ async function whoAmI() {
 
 async function load(force) {
   if (!token()) {
+    if (autoSignIn()) return
     gateOn()
     $('signout').hidden = true
     $('who').hidden = true
@@ -3196,6 +3212,7 @@ async function load(force) {
       $('table').innerHTML = ''                  // clear the skeleton, it would look like data
       $('table').removeAttribute('aria-busy')
     }
+    if (/rejected/i.test(e.message) && autoSignIn()) return
     if (/rejected|access/i.test(e.message)) { gateOn(); $('gateErr').textContent = e.message }
   } finally { loading = false }
 }
