@@ -129,8 +129,8 @@
   /* repo tag laid over each card block: faint bold grey, a 🎨 in front when the title carries 🎨 */
   .blocks i { position:relative; overflow:hidden; }
   .blocks i::after { content:attr(data-repo); position:absolute; inset:0; display:flex;
-    align-items:center; justify-content:center; font:700 8px/1 system-ui,sans-serif;
-    color:rgba(60,60,60,.4); pointer-events:none; white-space:nowrap; }
+    align-items:center; justify-content:center; font:700 8.8px/1 system-ui,sans-serif;
+    color:rgba(60,60,60,.5); pointer-events:none; white-space:nowrap; }
   .blocks i.nogo::after { content:'🎨 ' attr(data-repo); }
   .blocks i.nogo::after { filter:grayscale(1); }
   .blocks.dense i { min-width:0; border-right:0; }
