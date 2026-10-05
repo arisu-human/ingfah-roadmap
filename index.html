@@ -1202,7 +1202,7 @@ function build(all) {
       // A closed release is just closed, whatever happened on the way.
       state: row.closed ? 'closed'
            : (row.due < today && done < row.issues.length) ? 'slipped'
-           : startedAt ? 'running' : 'upcoming',
+           : (startedAt || done === row.issues.length) ? 'running' : 'upcoming',
       overdueBy: row.due < today
         ? Math.round((new Date(today) - new Date(row.due)) / 864e5) : 0,
       barStart: start < endDate ? start : endDate,
@@ -1256,8 +1256,11 @@ function applyPlan(rows) {
   const today = todayISO()
   for (const r of rows) {
     r.inSprint = thisSprint.has(r.name) && r.state !== 'closed'
-    r.planned = !r.startedAt && r.state !== 'closed'
-    const start = r.startedAt || (r.state === 'closed' ? r.born : plannedStart(r))
+    // Every card Done with no status trail (moved before events were recorded) is delivered work,
+    // not a plan: without this it was drawn as starting on the next workday, past its due date.
+    const delivered = r.total > 0 && r.done === r.total
+    r.planned = !r.startedAt && r.state !== 'closed' && !delivered
+    const start = r.startedAt || (r.state === 'closed' || delivered ? r.born : plannedStart(r))
     // The bar ends at the DUE date, always. It used to stretch to the last real Done when
     // that came later, which is true but reads as the due date being wrong: a card moved to
     // Done this morning pushed two bars one day past the date printed in the table. The late
