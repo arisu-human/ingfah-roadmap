@@ -126,6 +126,13 @@
   /* zoomed far out, a bar is narrower than cards x 2px, and the overflow clipped on the
      right read as missing cards. Dense mode drops the floor and the seams: every card
      stays inside the bar and the strip reads as proportion, like the table's bar. */
+  /* repo tag laid over each card block: faint bold grey, a 🎨 in front when the title carries 🎨 */
+  .blocks i { position:relative; overflow:hidden; }
+  .blocks i::after { content:attr(data-repo); position:absolute; inset:0; display:flex;
+    align-items:center; justify-content:center; font:700 8px/1 system-ui,sans-serif;
+    color:rgba(60,60,60,.4); pointer-events:none; white-space:nowrap; }
+  .blocks i.nogo::after { content:'🎨 ' attr(data-repo); }
+  .blocks i.nogo::after { filter:grayscale(1); }
   .blocks.dense i { min-width:0; border-right:0; }
   .blocks.dense i.idealine { flex:0 0 3px; min-width:3px; }
   /* a card with no Type set on GitHub: hatched, so it reads as needing attention */
@@ -1390,6 +1397,8 @@ function blocksEl(r, i) {
     const b = elem('i', (c.type === 'no type' ? 'notype' : '') + (matchCard(c) ? ' hit' : ''))
     b.style.background = grey ? '#dde2e7' : (STATUS_COLOR[c.status] || '#afb8c1')
     b.style.borderBottomColor = grey ? '#c6cdd5' : (TYPE_COLOR[c.type] || TYPE_COLOR['no type'])
+    b.dataset.repo = c.repo === 'zai-bo-frontend' ? 'B/O' : REPO_SHORT[c.repo]
+    if (c.title && c.title.includes('🎨')) b.classList.add('nogo')
     b.dataset.tip = cardTip(c)
     // a click opens the card, but only a CLICK: the chart is also the pan surface, and a
     // browser fires click after a drag too, so anything that moved is the hand tool's
