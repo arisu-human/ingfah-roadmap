@@ -148,23 +148,16 @@
   .vis-foreground .vis-group.rowlit { background:rgba(24,29,38,.035); }
   .vis-labelset .vis-label.g-sprint.rowlit { background:rgba(0,187,167,.16); }
   .vis-foreground .vis-group.g-sprint.rowlit { background:rgba(0,187,167,.10); }
-  /* The sprint pane floats ON TOP of the bars, so it is a real overlay rather than a vis
-     background item: those render behind everything and could not tint what they cover.
-     One flat wash of ingfah mint (#00BBA7, the TEAL token in zai-frontend) at 30%. The glass
-     it replaced read as a smudge over the chart: the blur, the sheen and the three shadows
-     each said "lifted" and none of them said "these are the weeks". Flat colour says it. */
-  #sprint { position:absolute; top:0; bottom:0; z-index:6; pointer-events:none; display:none;
-            border-radius:16px; overflow:hidden;
-            background:rgba(0,187,167,.30);
-            border:1px solid rgba(0,187,167,.65); }
+  /* The sprint pane sits BEHIND the bars as a plain cell background: inserted as the first
+     child of the timeline root, so every panel and bar paints over it. No border, no lift. */
+  #sprint { position:absolute; top:0; bottom:0; pointer-events:none; display:none;
+            background:rgba(0,187,167,.10); }
   /* max-width and the ellipsis are the safety net: if the label is measured before the web
      font loads, it trims from the end rather than losing characters off both sides */
-  #sprint b { position:absolute; top:5px; left:50%; transform:translateX(-50%); z-index:1;
+  #sprint b { position:absolute; top:4px; left:50%; transform:translateX(-50%);
               font-size:10px; font-weight:500; letter-spacing:.4px; text-transform:uppercase;
-              color:#006b60; background:rgba(255,255,255,.80); border-radius:12px;
-              padding:2px 10px; white-space:nowrap; max-width:calc(100% - 8px);
-              overflow:hidden; text-overflow:ellipsis; box-sizing:border-box;
-              box-shadow:0 1px 3px rgba(0,90,80,.20); }
+              color:#006b60; white-space:nowrap; max-width:calc(100% - 8px);
+              overflow:hidden; text-overflow:ellipsis; }
   #tl.grabbing .vis-panel.vis-center, #tl.grabbing .vis-panel.vis-center * { cursor:grabbing !important; }
   #tl.edge .vis-panel.vis-center, #tl.edge .vis-panel.vis-center * { cursor:ew-resize !important; }
   .vis-panel.vis-left { width:440px; }
@@ -1804,7 +1797,8 @@ function placeSprint() {
   if (!sprintEl) {
     sprintEl = elem('div'); sprintEl.id = 'sprint'
     sprintEl.appendChild(elem('b'))
-    timeline.dom.center.parentNode.appendChild(sprintEl)   // the visible time window
+    const root = timeline.dom.center.parentNode           // the visible time window
+    root.insertBefore(sprintEl, root.firstChild)            // first child: behind the bars
   }
   if (!sprint || !sprint.from || !sprint.to) { sprintEl.style.display = 'none'; return }
   const w = timeline.getWindow()
