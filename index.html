@@ -1283,8 +1283,9 @@ function applyPlan(rows) {
     // finish stays in the date column ("done 19 Aug") and in the bar tooltip.
     const end = r.due
     r.start = start
+    // a planned start past the due date never drags the end out to it: the end stays the due date
     r.barStart = start < end ? start : end
-    r.barEnd = start < end ? end : start
+    r.barEnd = end
     const span = (new Date(r.due) - new Date(start)) / 864e5
     const gone = (new Date(today) - new Date(start)) / 864e5
     r.timePct = r.state === 'closed' ? 100 : pct(gone, span)
