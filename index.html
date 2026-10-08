@@ -1719,7 +1719,13 @@ function drawTimeline(rows) {
     // and at the top row. Belt and braces after the bottom-anchor bug: whatever state the
     // vertical scroll is in after the first build, the first thing shown is the first release.
     const box = timeline.dom.left.parentNode
-    if (box) box.scrollTop = 0
+    // Closed releases sort first, so open at the first row that is still live, not at the top.
+    const live = shown.findIndex(r => r.state !== 'closed')
+    const toLive = () => {
+      const lab = box && box.querySelectorAll('.vis-label')[Math.max(live, 0)]
+      if (lab) box.scrollTop += lab.getBoundingClientRect().top - box.getBoundingClientRect().top
+    }
+    if (box) { box.scrollTop = 0; toLive(); requestAnimationFrame(toLive) }
     // The chart can come up white with everything in place but nothing painted, and any
     // interaction cures it: a scroll on the chart, a browser zoom. A redraw alone did not, so
     // this replays the user's own cure, a 1px scroll nudge plus a compositing poke, after the
@@ -1927,8 +1933,10 @@ function futureWindow(rows, zoom) {
   const hi = rows.reduce((m, r) => r.barEnd > m ? r.barEnd : m, today)
   const from = plus(today, -7), to = plus(hi, 7)
   const days = Math.round((new Date(to) - new Date(from)) / 864e5)
-  return { start: bkk(from),
-           end: bkk(zoom ? plus(from, Math.max(7, Math.round(days / zoom))) : to) }
+  if (!zoom) return { start: bkk(from), end: bkk(to) }
+  // Zoomed opening view: the sprint start (or today with no sprint) sits in the middle.
+  const w = Math.max(7, Math.round(days / zoom)), mid = (sprint && sprint.from) || today
+  return { start: bkk(plus(mid, -Math.floor(w / 2))), end: bkk(plus(mid, Math.ceil(w / 2))) }
 }
 function showFuture(shown, zoom) {
   const rows = shown || rowsCache.filter(inWindow)
