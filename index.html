@@ -160,7 +160,7 @@
   /* max-width and the ellipsis are the safety net: if the label is measured before the web
      font loads, it trims from the end rather than losing characters off both sides */
   #sprint b, #sprintNext b { position:absolute; top:4px; left:50%; transform:translateX(-50%);
-              font-size:12px; line-height:1; font-weight:500; letter-spacing:.4px; text-transform:uppercase;
+              font-size:10px; font-weight:500; letter-spacing:.4px; text-transform:uppercase;
               color:#006b60; white-space:nowrap; max-width:calc(100% - 8px);
               overflow:hidden; text-overflow:ellipsis; }
   #sprintNext b { color:#a35a00; }
@@ -179,7 +179,8 @@
   .vis-foreground .vis-group.g-next { background:rgba(255,152,0,.06); }
   tr.innext td { background:rgba(255,152,0,.09); }
   .glab { display:flex; align-items:center; gap:8px; width:100%; min-width:0; }
-  .gname { flex:1 1 auto; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .gname { flex:1 1 auto; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
+          font-size:13.5px; line-height:1.1; }
   .gopen, .gcopy { flex:0 0 auto; color:var(--soft-muted); text-decoration:none; font-size:13px;
            line-height:1; padding:3px 4px; border-radius:6px; }
   .gopen:hover, .gcopy:hover { color:var(--link); background:var(--surface-soft); }
