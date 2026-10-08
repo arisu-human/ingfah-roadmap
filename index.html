@@ -1308,13 +1308,13 @@ function clearTicks() {
   drawTable(); drawTimeline(rowsCache)
 }
 
-function toggleSprint(name) {
+function toggleSprint(name, thisOne) {
   const row = rowsCache.find(r => r.name === name)
   if (row && row.state === 'closed') return       // closed is a fact, not a plan
-  // none -> this sprint -> next sprint -> none
-  if (thisSprint.has(name)) { thisSprint.delete(name); nextSprint.add(name) }
-  else if (nextSprint.has(name)) nextSprint.delete(name)
-  else thisSprint.add(name)
+  // One click = next sprint, one more = off. Shift-click = this sprint, same toggle.
+  const [mine, other] = thisOne ? [thisSprint, nextSprint] : [nextSprint, thisSprint]
+  if (mine.has(name)) mine.delete(name)
+  else { other.delete(name); mine.add(name) }
   localStorage.setItem('thisSprint', JSON.stringify([...thisSprint]))
   localStorage.setItem('nextSprint', JSON.stringify([...nextSprint]))
   planChanged()
@@ -1332,9 +1332,9 @@ const STATE_LABEL = { upcoming:'upcoming', running:'in progress', slipped:'slipp
 function tickTip(r) {
   return r.startedAt ? 'Already started on ' + pretty(r.startedAt)
            + ', so the bar keeps that date either way'
-       : r.inSprint ? 'This sprint: planned to start now<br><i>click for next sprint</i>'
-       : r.inNext ? 'Next sprint: starts the first working day after the sprint<br><i>click to untick</i>'
-       : sprint && sprint.to ? 'Queued for the first working day after the sprint<br><i>click for this sprint</i>'
+       : r.inSprint ? 'This sprint: planned to start now<br><i>click: move to next sprint (shift-click: untick)</i>'
+       : r.inNext ? 'Next sprint: starts the first working day after the sprint<br><i>click to untick (shift-click: this sprint)</i>'
+       : sprint && sprint.to ? 'Queued for the first working day after the sprint<br><i>click: next sprint (shift-click: this sprint)</i>'
        : 'Set a sprint to queue this after it'
 }
 
@@ -1442,7 +1442,7 @@ function tickEl(r) {
   t.tabIndex = 0
   t.setAttribute('role', 'checkbox')
   t.setAttribute('aria-checked', r.inSprint ? 'true' : r.inNext ? 'mixed' : 'false')
-  t.onclick = e => { e.stopPropagation(); toggleSprint(r.name) }
+  t.onclick = e => { e.stopPropagation(); toggleSprint(r.name, e.shiftKey) }
   t.onkeydown = e => { if (e.key === ' ' || e.key === 'Enter') { e.preventDefault(); t.click() } }
   return t
 }
@@ -3081,7 +3081,7 @@ function drawTable() {
     el.onclick = () => renameRelease(rowsCache.find(r => r.title === el.dataset.t))
   })
   $('table').querySelectorAll('.tick').forEach(el => {
-    el.onclick = () => toggleSprint(el.dataset.t)
+    el.onclick = e => toggleSprint(el.dataset.t, e.shiftKey)
     el.onkeydown = e => { if (e.key === ' ' || e.key === 'Enter') { e.preventDefault(); el.click() } }
   })
 }
