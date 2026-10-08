@@ -115,7 +115,8 @@
   /* the same tick in the chart's name column, sized down to the 12px label row */
   .gtick { flex:0 0 auto; font-size:13px; padding:1px 2px; }
   /* a closed release holds the column open so the names stay in line */
-  .gtick.ghost { visibility:hidden; }
+  .gtick.ghost, .tickpair.ghost { visibility:hidden; }
+  .tickpair { display:inline-flex; flex:0 0 auto; }
   .glab .pill { padding:1px 7px; font-size:10px; }
 
   /* one equal block per card: fill = card type, stripe underneath = repo */
@@ -1312,7 +1313,7 @@ function clearTicks() {
 function toggleSprint(name, thisOne) {
   const row = rowsCache.find(r => r.name === name)
   if (row && row.state === 'closed') return       // closed is a fact, not a plan
-  // One click = next sprint, one more = off. Shift-click = this sprint, same toggle.
+  // Each box toggles its own sprint; ticking one clears the other.
   const [mine, other] = thisOne ? [thisSprint, nextSprint] : [nextSprint, thisSprint]
   if (mine.has(name)) mine.delete(name)
   else { other.delete(name); mine.add(name) }
@@ -1330,13 +1331,13 @@ const inWindow = r => r.state !== 'closed' ||
 const STATE_LABEL = { upcoming:'upcoming', running:'in progress', slipped:'slipped', closed:'closed' }
 
 /* ---- this sprint tick: the same control in the table and in the chart ---- */
-function tickTip(r) {
-  return r.startedAt ? 'Already started on ' + pretty(r.startedAt)
-           + ', so the bar keeps that date either way'
-       : r.inSprint ? 'This sprint: planned to start now<br><i>click: move to next sprint (shift-click: untick)</i>'
-       : r.inNext ? 'Next sprint: starts the first working day after the sprint<br><i>click to untick (shift-click: this sprint)</i>'
-       : sprint && sprint.to ? 'Queued for the first working day after the sprint<br><i>click: next sprint (shift-click: this sprint)</i>'
-       : 'Set a sprint to queue this after it'
+function tickTip(r, thisOne) {
+  const on = thisOne ? r.inSprint : r.inNext
+  return (r.startedAt ? 'Already started on ' + pretty(r.startedAt) + ', so the bar keeps that date either way<br>' : '')
+    + (thisOne ? 'This sprint: planned to start now'
+       : sprint && sprint.to ? 'Next sprint: starts the first working day after the sprint'
+       : 'Set a sprint to queue this after it')
+    + '<br><i>click to ' + (on ? 'untick' : 'tick') + '</i>'
 }
 
 // The block is the board column, always. The only thing left to say is when there is no
@@ -1434,18 +1435,22 @@ function copyTitle(title) {
     () => toast('The browser would not give the page the clipboard.', 'err'))
 }
 
+// two boxes: this sprint (teal) and next sprint (orange), each one click
 function tickEl(r) {
-  const t = elem('span', 'tick gtick' + (r.inSprint ? ' on' : r.inNext ? ' on next' : ''))
-  t.textContent = r.inSprint || r.inNext ? '☑' : '☐'
-  // a closed release cannot be planned, so it keeps the space and loses the control
-  if (r.state === 'closed') { t.className = 'tick gtick ghost'; return t }
-  t.dataset.tip = tickTip(r)
-  t.tabIndex = 0
-  t.setAttribute('role', 'checkbox')
-  t.setAttribute('aria-checked', r.inSprint ? 'true' : r.inNext ? 'mixed' : 'false')
-  t.onclick = e => { e.stopPropagation(); toggleSprint(r.name, e.shiftKey) }
-  t.onkeydown = e => { if (e.key === ' ' || e.key === 'Enter') { e.preventDefault(); t.click() } }
-  return t
+  const pair = elem('span', 'tickpair' + (r.state === 'closed' ? ' ghost' : ''))
+  for (const thisOne of [true, false]) {
+    const on = thisOne ? r.inSprint : r.inNext
+    const t = elem('span', 'tick gtick' + (on ? ' on' + (thisOne ? '' : ' next') : ''))
+    t.textContent = on ? '☑' : '☐'
+    t.dataset.tip = tickTip(r, thisOne)
+    t.tabIndex = 0
+    t.setAttribute('role', 'checkbox')
+    t.setAttribute('aria-checked', !!on)
+    t.onclick = e => { e.stopPropagation(); toggleSprint(r.name, thisOne) }
+    t.onkeydown = e => { if (e.key === ' ' || e.key === 'Enter') { e.preventDefault(); t.click() } }
+    pair.appendChild(t)
+  }
+  return pair
 }
 
 // [tick] {name} [state] (done/total) [close the release] [open in a new tab]
@@ -2998,11 +3003,12 @@ function datesCell(r) {
 const COLS = [
   { k:'sprint', h:'Sprint',
     cell:r => r.state === 'closed' ? ''
-      : '<span class="tick' + (r.inSprint ? ' on' : r.inNext ? ' on next' : '') + '" data-t="' + esc(r.name)
-      + '" role="checkbox" tabindex="0" aria-checked="'
-      + (r.inSprint ? 'true' : r.inNext ? 'mixed' : 'false') + '" data-tip="'
-      + esc(tickTip(r)) + '">'
-      + (r.inSprint || r.inNext ? '☑' : '☐') + '</span>',
+      : [true, false].map(w => {
+          const on = w ? r.inSprint : r.inNext
+          return '<span class="tick' + (on ? ' on' + (w ? '' : ' next') : '') + '" data-t="' + esc(r.name)
+            + '" data-w="' + (w ? 'this' : 'next') + '" role="checkbox" tabindex="0" aria-checked="' + !!on
+            + '" data-tip="' + esc(tickTip(r, w)) + '">' + (on ? '☑' : '☐') + '</span>'
+        }).join(''),
     val:r => r.state === 'closed' ? 3 : r.inSprint ? 0 : r.inNext ? 1 : 2 },
   { k:'name',  h:'Milestone', cell:r => (() => {
       return ''
@@ -3082,7 +3088,7 @@ function drawTable() {
     el.onclick = () => renameRelease(rowsCache.find(r => r.title === el.dataset.t))
   })
   $('table').querySelectorAll('.tick').forEach(el => {
-    el.onclick = e => toggleSprint(el.dataset.t, e.shiftKey)
+    el.onclick = () => toggleSprint(el.dataset.t, el.dataset.w === 'this')
     el.onkeydown = e => { if (e.key === ' ' || e.key === 'Enter') { e.preventDefault(); el.click() } }
   })
 }
