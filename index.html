@@ -1725,7 +1725,18 @@ function drawTimeline(rows) {
       const lab = box && box.querySelectorAll('.vis-label')[Math.max(live, 0)]
       if (lab) box.scrollTop += lab.getBoundingClientRect().top - box.getBoundingClientRect().top
     }
-    if (box) { box.scrollTop = 0; toLive(); requestAnimationFrame(toLive) }
+    // Fonts, resizes and the late data redraws can reset the scroll, so repeat it a few times
+    // until the viewer touches the chart themselves.
+    let touched = false
+    const again = () => { if (!touched) toLive() }
+    if (box) {
+      for (const ev of ['wheel', 'touchstart', 'pointerdown', 'keydown']) {
+        box.addEventListener(ev, () => { touched = true }, { once: true, passive: true })
+      }
+      box.scrollTop = 0; toLive(); requestAnimationFrame(again)
+      for (const ms of [150, 500, 1200, 2500]) setTimeout(again, ms)
+      if (document.fonts && document.fonts.ready) document.fonts.ready.then(again)
+    }
     // The chart can come up white with everything in place but nothing painted, and any
     // interaction cures it: a scroll on the chart, a browser zoom. A redraw alone did not, so
     // this replays the user's own cure, a 1px scroll nudge plus a compositing poke, after the
