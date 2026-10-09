@@ -167,7 +167,11 @@
   #sprintNext b { color:#a35a00; }
   #tl.grabbing .vis-panel.vis-center, #tl.grabbing .vis-panel.vis-center * { cursor:grabbing !important; }
   #tl.edge .vis-panel.vis-center, #tl.edge .vis-panel.vis-center * { cursor:ew-resize !important; }
-  .vis-panel.vis-left { width:440px; }
+  .vis-panel.vis-left { width:var(--lw, 440px); }
+  /* draggable divider between the name column and the chart */
+  #colGrip { position:absolute; top:0; bottom:0; left:calc(var(--lw, 440px) - 4px); width:8px;
+             cursor:col-resize; z-index:60; touch-action:none; }
+  #colGrip:hover, #colGrip.drag { background:rgba(9,105,218,.25); }
   .vis-labelset .vis-label { padding:0 12px 0 14px; display:flex; align-items:center;
                              border-bottom:1px solid #eef1f4; font-size:12px; }
   .vis-labelset .vis-label .vis-inner { width:100%; min-width:0; }
@@ -1369,6 +1373,13 @@ function itemTooltip(r) {
     + (r.qas.length ? ' | ' + faces(r.qas) : '')
 }
 
+const nameW = () => parseInt($('tl').style.getPropertyValue('--lw')) || 440
+function setNameW(w) {
+  w = Math.round(Math.max(200, Math.min(w, $('tl').clientWidth - 200)))
+  $('tl').style.setProperty('--lw', w + 'px')
+  if (timeline) { timeline.redraw(); lastSprintW = -1; placeSprint() }
+}
+
 // IMPORTANT: build the bar and the label as real DOM, never as an HTML string. vis runs any
 // string through an XSS filter that allows no attributes at all, which quietly removed the
 // block colours, the tooltips and the drag handle marker and left one flat bar behind.
@@ -1581,6 +1592,19 @@ function drawTimeline(rows) {
       }
     })
     timeline.on('rangechanged', tuneAxis)
+    // drag the divider to size the name column
+    const grip = elem('div'); grip.id = 'colGrip'; grip.dataset.tip = 'drag to resize'
+    $('tl').appendChild(grip)
+    try { setNameW(+localStorage.getItem('nameW') || 440) } catch (e) {}
+    grip.onpointerdown = e => { e.preventDefault(); e.stopPropagation(); grip.setPointerCapture(e.pointerId); grip.classList.add('drag') }
+    grip.onpointermove = e => {
+      if (!grip.classList.contains('drag')) return
+      setNameW(e.clientX - $('tl').getBoundingClientRect().left)
+    }
+    grip.onpointerup = () => {
+      grip.classList.remove('drag')
+      try { localStorage.setItem('nameW', nameW()) } catch (e) {}
+    }
     timeline.on('rangechange', placeSprint)     // track it live while panning and zooming
     timeline.on('changed', placeSprint)
     timeline.on('changed', dressAxis)
@@ -1767,7 +1791,7 @@ function fitBars() {
 function tuneAxis() {
   if (!timeline) return
   const w = timeline.getWindow()
-  const px = ($('tl').clientWidth - 440) / ((w.end - w.start) / 864e5)   // pixels per day
+  const px = ($('tl').clientWidth - nameW()) / ((w.end - w.start) / 864e5)   // pixels per day
   const want = px >= 13 ? 'day' : px >= 2.6 ? 'week' : 'month'
   if (want === axisScale) return
   axisScale = want
