@@ -131,7 +131,7 @@
   /* repo tag laid over each card block: faint bold grey tag, a plain colored 🎨 in front when the title carries 🎨 */
   .blocks i { position:relative; overflow:hidden; }
   .blocks i::after { content:attr(data-repo); position:absolute; inset:0; display:flex;
-    align-items:center; justify-content:center; font:700 8.8px/1 system-ui,sans-serif;
+    align-items:center; justify-content:center; font:700 10.5px/1 system-ui,sans-serif;
     color:rgba(60,60,60,.5); pointer-events:none; white-space:nowrap; }
   .blocks i.nogo::after { content:'🎨 ' attr(data-repo); }
   .blocks.dense i { min-width:0; border-right:0; }
@@ -626,7 +626,8 @@
   <div class="bar">
     <button id="zoomOut" title="Zoom out">&minus;</button>
     <button id="zoomIn" title="Zoom in">+</button>
-    <button id="fit" title="Back to today, a week in from the left edge, at the current zoom">Today</button>
+    <button id="fit" title="Today, a week in from the left">Today</button>
+    <button id="recenter" title="Sprint start in the middle, first live release on top">Center</button>
     <button id="fitAllTime" title="Fit every release on screen">All</button>
     <span class="chip" id="legend">Legend</span>
     <span class="chip" id="help">?</span>
@@ -639,8 +640,9 @@
       <button id="sprintSave" class="primary">Set</button>
       <button id="sprintClear">Clear</button>
     </span>
-    <button id="ticksClear" title="Untick every release in This Sprint and Next Sprint">Clear ticks</button>
     <span class="key" id="dateNow" style="font-weight:500;color:var(--ink)"></span>
+    <input id="search" type="search" placeholder="Search milestone or card..." style="width:230px">
+    <span class="muted" id="searchCount"></span>
     <span class="sep"></span>
     <button id="older" title="Load releases closed further back">Older</button>
     <button id="mmdCopy" title="Copy the chart as Mermaid, for a GitHub issue">Mermaid</button>
@@ -730,8 +732,6 @@
 
 <div class="card tabR">
   <div class="toolrow">
-    <input id="search" type="search" placeholder="Search milestone or card..." style="width:280px">
-    <span class="muted" id="searchCount"></span>
     <button id="hideClosed"></button>
     <button id="full"></button>
     <span id="statusKey" class="keys"></span>
@@ -1292,24 +1292,10 @@ function applyPlan(rows) {
     const gone = (new Date(today) - new Date(start)) / 864e5
     r.timePct = r.state === 'closed' ? 100 : pct(gone, span)
   }
-  paintTicks()
   return rows
 }
 
 // the button is only ever offered when there are ticks to clear
-function paintTicks() {
-  const b = $('ticksClear')
-  if (b) b.disabled = !thisSprint.size && !nextSprint.size
-}
-
-function clearTicks() {
-  thisSprint.clear(); nextSprint.clear()
-  localStorage.removeItem('thisSprint'); localStorage.removeItem('nextSprint')
-  planChanged()
-  applyPlan(rowsCache)
-  drawTable(); drawTimeline(rowsCache)
-}
-
 function toggleSprint(name, thisOne) {
   const row = rowsCache.find(r => r.name === name)
   if (row && row.state === 'closed') return       // closed is a fact, not a plan
@@ -1332,12 +1318,8 @@ const STATE_LABEL = { upcoming:'upcoming', running:'in progress', slipped:'slipp
 
 /* ---- this sprint tick: the same control in the table and in the chart ---- */
 function tickTip(r, thisOne) {
-  const on = thisOne ? r.inSprint : r.inNext
-  return (r.startedAt ? 'Already started on ' + pretty(r.startedAt) + ', so the bar keeps that date either way<br>' : '')
-    + (thisOne ? 'This sprint: planned to start now'
-       : sprint && sprint.to ? 'Next sprint: starts the first working day after the sprint'
-       : 'Set a sprint to queue this after it')
-    + '<br><i>click to ' + (on ? 'untick' : 'tick') + '</i>'
+  return (thisOne ? 'This sprint' : sprint && sprint.to ? 'Next sprint' : 'Set a sprint first')
+    + ((thisOne ? r.inSprint : r.inNext) ? ': click to untick' : '')
 }
 
 // The block is the board column, always. The only thing left to say is when there is no
@@ -1369,9 +1351,8 @@ function cardTip(c) {
     + whyStatus(c)
     + (c.people && c.people.length
         ? '<br>' + c.people.map(p => '<img src="' + esc(p.avatarUrl) + '&s=32"> '
-            + esc(p.login)).join('<br>')
+            + esc(p.login)).join(' ')
         : '')
-    + '<br><i>click to open the card</i>'
 }
 
 /* ---- timeline ---- */
@@ -1380,15 +1361,10 @@ function faces(list) {
   return list.slice(0,6).map(p => '<img src="' + esc(p.avatar) + '&s=32" title="' + esc(p.login) + '">').join('')
 }
 function itemTooltip(r) {
-  const byRepo = {}
-  for (const c of r.cards) byRepo[c.repo] = (byRepo[c.repo] || 0) + 1
   return '<b>' + esc(r.name) + '</b> &middot; ' + STATE_LABEL[r.state] + '<br>'
-    + pretty(r.start) + ' to ' + pretty(r.due)
-    + (r.late && r.lastDone ? ' <i>(last card done ' + pretty(r.lastDone) + ')</i>' : '')
-    + (r.startedAt ? '' : ' <i>(nothing started yet)</i>') + '<br>'
-    + r.done + ' done' + (r.ready ? ' + ' + r.ready + ' ready for test' : '') + ' of ' + r.total + ' cards<br>'
-    + Object.entries(byRepo).map(([k, n]) => REPO_SHORT[k] + ' ' + n).join(' &middot; ') + '<br>'
-    + 'cards ' + Math.round(r.cardPct) + '% &middot; time ' + Math.round(r.timePct) + '%'
+    + pretty(r.start) + ' &rarr; ' + pretty(r.due)
+    + (r.late && r.lastDone ? ' (done ' + pretty(r.lastDone) + ')' : '') + '<br>'
+    + r.done + '/' + r.total + ' done'
     + (r.devs.length ? '<br>' + faces(r.devs) : '')
     + (r.qas.length ? ' | ' + faces(r.qas) : '')
 }
@@ -1727,10 +1703,7 @@ function drawTimeline(rows) {
     const box = timeline.dom.left.parentNode
     // Closed releases sort first, so open at the first row that is still live, not at the top.
     const live = shown.findIndex(r => r.state !== 'closed')
-    const toLive = () => {
-      const lab = box && box.querySelectorAll('.vis-label')[Math.max(live, 0)]
-      if (lab) box.scrollTop += lab.getBoundingClientRect().top - box.getBoundingClientRect().top
-    }
+    const toLive = () => scrollToLive(box, live)
     // Fonts, resizes and the late data redraws can reset the scroll, so repeat it a few times
     // until the viewer touches the chart themselves.
     let touched = false
@@ -1965,6 +1938,18 @@ function showFuture(shown, zoom) {
 // where the first draw put it. It used to refit out to the last future release instead, and one
 // parking milestone dated 2099 stretched that to seventy years: today became a 7px sliver on
 // the far left and the button looked as if it went anywhere but today.
+function scrollToLive(box, live) {
+  const lab = box && box.querySelectorAll('.vis-label')[Math.max(live, 0)]
+  if (lab) box.scrollTop += lab.getBoundingClientRect().top - box.getBoundingClientRect().top
+}
+// Same view the page opens with, at the zoom the viewer has now.
+function recenter() {
+  if (!timeline) return
+  const w = timeline.getWindow(), half = (w.end - w.start) / 2
+  const mid = +bkk((sprint && sprint.from) || todayISO())
+  timeline.setWindow(new Date(mid - half), new Date(mid + half), { animation:false })
+  scrollToLive(timeline.dom.left.parentNode, shownCache.findIndex(r => r.state !== 'closed'))
+}
 function showToday() {
   if (!timeline) return
   const w = timeline.getWindow()
@@ -2582,20 +2567,6 @@ function askConfirm(r, newDue) {
   $('ask').classList.add('on')
 }
 
-// Same confirm bar as the due date drag, because this also throws work away, and it says
-// where the ticks live: nothing on GitHub moves.
-function askClearTicks() {
-  const n = thisSprint.size + nextSprint.size
-  if (!n) return
-  renameTo = null; paintRename()
-  pending = { ticks:true }
-  $('askText').innerHTML = 'Untick <b>' + n + ' release' + (n > 1 ? 's' : '') + '</b> from This Sprint and Next Sprint?'
-  $('askRepos').textContent = 'only this browser, nothing on GitHub changes'
-  $('askGo').disabled = false
-  $('askGo').textContent = 'Confirm'
-  $('ask').classList.add('on')
-}
-
 /* ---- closing a release, the way the PO milestone skill does it ----
    Close in every repo, then move the date stamp into the bracket: "20260814 Name" becomes
    "[Closed on 20260814] Name". The date is the one the title already carried, never the day
@@ -2792,7 +2763,6 @@ async function renameRelease(r) {
 $('askNo').onclick = () => cancelAsk(true)
 $('askGo').onclick = async () => {
   if (!pending) return
-  if (pending.ticks) { cancelAsk(); clearTicks(); return }
   if (pending.close) { $('askGo').disabled = true; $('askGo').textContent = 'Closing...'
                        closeRelease(pending); return }
   const { due, targets, titleBefore } = pending
@@ -2981,15 +2951,10 @@ function progressCell(r) {
 // say why a release is in the state it is, so the rule never has to be taken on trust
 function stateWhy(r) {
   const left = r.total - r.done
-  if (r.state === 'closed') return '<b>closed</b><br>'
-    + (r.late ? 'finished ' + pretty(r.lastDone) + ', after the ' + pretty(r.due) + ' due date'
-              : 'finished on time')
-  if (r.state === 'slipped') return '<b>slipped</b><br>due ' + pretty(r.due) + ' passed '
-    + r.overdueBy + ' day' + (r.overdueBy > 1 ? 's' : '') + ' ago<br>'
-    + left + ' card' + (left > 1 ? 's' : '') + ' still not Done'
-  if (r.state === 'upcoming') return '<b>upcoming</b><br>no card has left To Do yet'
-  return '<b>in progress</b><br>' + left + ' card' + (left > 1 ? 's' : '') + ' left'
-    + ', due ' + pretty(r.due)
+  if (r.state === 'closed') return r.late ? 'closed, done ' + pretty(r.lastDone) : 'closed on time'
+  if (r.state === 'slipped') return 'slipped ' + r.overdueBy + 'd, ' + left + ' not Done'
+  if (r.state === 'upcoming') return 'no card started'
+  return left + ' left, due ' + pretty(r.due)
 }
 
 // start → due on one line, with the real finish only called out when it ran past the due date
@@ -3108,6 +3073,7 @@ document.addEventListener('mousemove', e => {
 $('zoomIn').onclick  = () => timeline && timeline.zoomIn(0.4)
 $('zoomOut').onclick = () => timeline && timeline.zoomOut(0.4)
 $('fit').onclick     = () => showToday()
+$('recenter').onclick = recenter
 $('fitAllTime').onclick = () => timeline && timeline.fit()
 $('older').onclick = () => {
   if (windowDays >= 3650) { windowDays = 14; closedMs = 20; load(true); return }
@@ -3207,10 +3173,7 @@ function paint(when) {
     + '<br>Moving, closing and renaming a release, and the plan notes, belong to '
     + [...OWNERS].join(' and ') + '.'
   $('stamp').textContent = clock(when)
-    + ' · ' + shown.length + ' releases'
-    + (n('slipped') ? ' · ' + n('slipped') + ' slipped' : '')
     + (truncated.length ? ' · card count is short on ' + truncated.join(', ') : '')
-    + (capped.length ? ' · more releases exist behind ' + capped.join(', ') + ', press Older' : '')
   $('stamp').dataset.tip = 'updated ' + clock(when) + ' Bangkok (GMT+7)'
     // which build of the PAGE this is, off the Last-Modified header GitHub Pages serves it
     // with, so a stale cached copy can be recognised without guessing
@@ -3333,8 +3296,6 @@ paintHide()
 $('statusKey').innerHTML = BOARD.map(b =>
   '<span class="key"><i style="background:' + b.c + '"></i>' + b.short + '</span>').join('')
 
-$('ticksClear').onclick = askClearTicks
-paintTicks()
 
 // the card blocks are rebuilt on every draw, so the table listens once for all of them
 $('table').addEventListener('click', e => {
