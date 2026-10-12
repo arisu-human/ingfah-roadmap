@@ -179,6 +179,9 @@
                 z-index:55; box-sizing:border-box; }
   #tl #searchCount { position:absolute; top:14px; left:calc(var(--lw, 440px) - 90px); z-index:56;
                      font-size:11px; pointer-events:none; }
+  /* picked releases: a blue edge on the name and a ring on the bar */
+  .vis-labelset .vis-label.g-sel { box-shadow:inset 3px 0 0 var(--link); background:rgba(27,97,201,.10); }
+  .vis-item.sel { box-shadow:0 0 0 2px var(--link); }
   #colGrip { position:absolute; top:0; bottom:0; left:calc(var(--lw, 440px) - 4px); width:8px;
              cursor:col-resize; z-index:60; touch-action:none; }
   #colGrip:hover, #colGrip.drag { background:rgba(9,105,218,.25); }
@@ -1532,9 +1535,15 @@ function labelEl(r) {
   const wrap = elem('span', 'glab')
   const name = elem('span', 'gname')
   name.textContent = r.name
-  name.dataset.tip = esc(r.name) + '<br><i>click to copy the milestone name</i>'
+  name.dataset.tip = esc(r.name) + '<br><i>click: copy name · ctrl/shift-click: select</i>'
   name.style.cursor = 'pointer'
-  name.onclick = e => { e.stopPropagation(); copyTitle(r.title) }
+  name.onclick = e => {
+    e.stopPropagation()
+    if (!(e.shiftKey || e.ctrlKey || e.metaKey)) return copyTitle(r.title)
+    if (r.state === 'closed') return
+    sel.has(r.title) ? sel.delete(r.title) : sel.add(r.title)
+    drawTimeline(rowsCache)
+  }
   const pill = elem('span', 'pill ' + r.state)
   pill.textContent = STATE_LABEL[r.state]
   pill.dataset.tip = stateWhy(r)
@@ -1585,6 +1594,7 @@ function shading(from, to) {
 
 const plus = (d, n) => { const x = new Date(d + 'T00:00:00Z'); x.setUTCDate(x.getUTCDate() + n)
                          return x.toISOString().slice(0,10) }
+const sel = new Set()        // release titles picked with ctrl/shift-click, moved together
 let groups = null, firstDraw = true, shownCache = [], resize = null, downAt = { x:0, y:0 }
 
 // dragging the due date handle: the bar follows the pointer, and letting go opens the confirm bar
@@ -1596,13 +1606,24 @@ document.addEventListener('pointermove', e => {
   const d = toDay(t)
   resize.day = d < min ? min : d
   items.update({ id: resize.id, end: bkk(plus(resize.day, 1)) })
+  // a picked bar drags the other picked bars by the same number of days
+  if (sel.has(resize.row.title)) {
+    const delta = daysBetween(resize.row.due, resize.day)
+    for (const r of shownCache) {
+      if (r === resize.row || !sel.has(r.title)) continue
+      const end = plus(r.due, delta)
+      items.update({ id: shownCache.indexOf(r), end: bkk(plus(end < r.barStart ? r.barStart : end, 1)) })
+    }
+  }
 })
+const daysBetween = (a, b) => Math.round((new Date(b) - new Date(a)) / 864e5)
 const endResize = () => {
   if (!resize) return
   const done = resize
   resize = null
   $('tl').classList.remove('edge')
-  if (done.day) askConfirm(done.row, done.day)
+  if (done.day) sel.has(done.row.title) && sel.size > 1 ? askConfirmMany(done.row, done.day)
+                                                         : askConfirm(done.row, done.day)
 }
 document.addEventListener('pointerup', endResize)
 document.addEventListener('pointercancel', endResize)
@@ -1629,7 +1650,7 @@ function drawTimeline(rows) {
 
   // one group per release, so every release keeps a row of its own
   const groupData = shown.map((r, i) => ({
-    id: i, order: i, className: 'g-' + r.state + (r.inSprint ? ' g-sprint' : r.inNext ? ' g-next' : ''),
+    id: i, order: i, className: 'g-' + r.state + (r.inSprint ? ' g-sprint' : r.inNext ? ' g-next' : '') + (sel.has(r.title) ? ' g-sel' : ''),
     content: labelEl(r)
   }))
   const data = shown.map((r, i) => ({
@@ -1643,7 +1664,7 @@ function drawTimeline(rows) {
     end: bkk(plus(r.barEnd, 1)),
     className: 'st-' + r.state + (r.state === 'closed' ? '' : ' can-drag')
       + (r.inSprint ? ' in-sprint' : r.inNext ? ' in-next' : '') + (r.planned ? ' planned' : '')
-      + (searchQ && rowMatch(r) ? ' has-hit' : ''),
+      + (sel.has(r.title) ? ' sel' : '') + (searchQ && rowMatch(r) ? ' has-hit' : ''),
     url: PROJECT_SLICE + encodeURIComponent(r.title)
   })).concat(shading(lo, plus(hi, 14)))   // background bands carry no group, so they span every row
 
@@ -2679,6 +2700,62 @@ function askConfirm(r, newDue) {
   $('ask').classList.add('on')
 }
 
+// Several picked releases move by the same number of days. Each keeps its own title rule:
+// an 8-digit date stamp is rewritten to the new due date, as in the single drag.
+function askConfirmMany(dragged, newDue) {
+  if (!canWrite()) { cancelAsk(true); return noWrite() }
+  const delta = daysBetween(dragged.due, newDue)
+  const jobs = []
+  for (const r of shownCache) {
+    if (!sel.has(r.title) || r.state === 'closed' || !r.refs) continue
+    const targets = r.refs.filter(f => !f.closed)
+    let due = plus(r.due, delta)
+    if (due < r.barStart) due = r.barStart
+    if (!targets.length || due === r.due) continue
+    jobs.push({ r, due, targets,
+                title: /^\d{8}/.test(r.title) ? stampOf(due) + r.title.slice(8) : r.title })
+  }
+  if (!jobs.length) { cancelAsk(true); return toast('Nothing to move.', 'info') }
+  renameTo = null; paintRename()
+  pending = { many: jobs }
+  $('askText').innerHTML = 'Move <b>' + jobs.length + ' releases</b> by <b>' + (delta > 0 ? '+' : '')
+    + delta + ' day' + (Math.abs(delta) > 1 ? 's' : '') + '</b>?<br>'
+    + jobs.map(j => esc(j.r.name) + ' ' + prettyDue(j.r.due) + ' &rarr; ' + pretty(j.due)).join('<br>')
+  $('askRepos').textContent = 'changes ' + jobs.reduce((n, j) => n + j.targets.length, 0)
+    + ' milestones, names get the new date'
+  $('askGo').disabled = false
+  $('askGo').textContent = 'Confirm'
+  $('ask').classList.add('on')
+}
+async function runMany(jobs) {
+  $('askGo').disabled = true; $('askGo').textContent = 'Saving...'
+  const total = jobs.reduce((n, j) => n + j.targets.length, 0)
+  const spin = busyToast('Moving ' + jobs.length + ' releases...')
+  const won = []
+  try {
+    for (const j of jobs) for (const t of j.targets) {   // one at a time, so a failure names the repo
+      spin.set('Saving ' + t.repo + ' #' + t.number + ' \u00b7 ' + (won.length + 1) + ' of ' + total + '...')
+      won.push(await setDue(t, j.due, j.title))
+    }
+    localStorage.removeItem(CACHE)
+    cancelAsk()
+    sel.clear()
+    spin.set('Saved \u00b7 reading it back from GitHub...')
+    await load(true)
+    spin.done()
+    const off = jobs.filter(j => { const row = rowsCache.find(r => r.title === j.title); return !row || row.due !== j.due })
+    toast(off.length ? off.length + ' of ' + jobs.length + ' releases did not read back on the new date: '
+      + off.map(j => j.r.name).join(', ') : jobs.length + ' releases moved \u00b7 ' + won.length + ' milestones',
+      off.length ? 'err' : 'ok')
+  } catch (e) {
+    spin.done()
+    const msg = e.message + (won.length ? ' \u2014 already changed: ' + won.join(', ') : '')
+    $('askText').innerHTML = '<span class="err">' + esc(msg) + '</span>'
+    $('askGo').disabled = false; $('askGo').textContent = 'Try again'
+    toast(msg, 'err')
+  }
+}
+
 /* ---- closing a release, the way the PO milestone skill does it ----
    Close in every repo, then move the date stamp into the bracket: "20260814 Name" becomes
    "[Closed on 20260814] Name". The date is the one the title already carried, never the day
@@ -2872,9 +2949,15 @@ async function renameRelease(r) {
   }
 }
 
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape' && sel.size && !pending && !/INPUT|TEXTAREA/.test(document.activeElement.tagName)) {
+    sel.clear(); drawTimeline(rowsCache)
+  }
+})
 $('askNo').onclick = () => cancelAsk(true)
 $('askGo').onclick = async () => {
   if (!pending) return
+  if (pending.many) return runMany(pending.many)
   if (pending.close) { $('askGo').disabled = true; $('askGo').textContent = 'Closing...'
                        closeRelease(pending); return }
   const { due, targets, titleBefore } = pending
