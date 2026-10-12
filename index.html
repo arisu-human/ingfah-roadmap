@@ -948,7 +948,7 @@ const MS_FIELDS = `
 // so the page sizes below are the real cost control. Nothing else in the query moves the price.
 // Closed milestones start small because only the last two weeks are drawn; Show older asks for
 // more of them, once, on demand.
-const OPEN_MS = 30            // biggest repo has 20 open milestones today
+const OPEN_MS = 100           // zai-backend has 35 open milestones; 30 silently cut off the newest
 // GitHub resolves only so much nested data per query and says nothing when it stops. Asking
 // for 30 milestones at once came back with the timeline of 11 zai-backend cards missing
 // entirely and others cut short, which read on the page as cards sitting in Backlog and as
@@ -1190,6 +1190,7 @@ async function askAll(query, name, want) {
 
 let truncated = []                       // milestones holding more cards than one page returns
 let capped = []                          // repos where the milestone page came back full
+let openCut = []                         // repos with more OPEN milestones than OPEN_MS: releases missing
 
 async function fetchRepo(name) {
   const [open, closed] = await Promise.all([askAll(Q_OPEN, name, OPEN_MS),
@@ -1200,6 +1201,7 @@ async function fetchRepo(name) {
   // a full page means there is probably more behind it, and staying quiet about that would
   // read as "this is everything"
   if (open.more || closed.more) capped.push(name)
+  if (open.more) openCut.push(name)
   return [
     ...open.nodes.map(m => ({ ...m, repo:name, isClosed:false })),
     ...closed.nodes.map(m => ({ ...m, repo:name, isClosed:true }))
@@ -3289,6 +3291,7 @@ function paint(when) {
     + [...OWNERS].join(' and ') + '.'
   $('stamp').textContent = clock(when)
     + (truncated.length ? ' · card count is short on ' + truncated.join(', ') : '')
+    + (openCut.length ? ' · open releases missing in ' + openCut.join(', ') : '')
   $('stamp').dataset.tip = 'updated ' + clock(when) + ' Bangkok (GMT+7)'
     // which build of the PAGE this is, off the Last-Modified header GitHub Pages serves it
     // with, so a stale cached copy can be recognised without guessing
@@ -3341,7 +3344,7 @@ async function load(force) {
   // than letting the old numbers stand for a few seconds while the new ones arrive
   if (!rowsCache.length) skeleton()
   try {
-    truncated = []; capped = []
+    truncated = []; capped = []; openCut = []
     const all = (await Promise.all(REPOS.map(fetchRepo))).flat()
     rowsCache = build(all)
     saveCache()
