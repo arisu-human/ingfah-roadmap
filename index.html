@@ -660,6 +660,17 @@
   html.dark .qwm, html.dark .qcell .qwm { color:rgba(255,255,255,.08); }
   html.dark #qtoday { background:rgba(240,136,62,.10); }
   html.dark .qnote.brief, html.dark .chip.briefpill { background:rgba(219,97,162,.12); }
+  /* table: the pastel person and type strips are tuned for white, so a dark veil sits over their
+     colour (the faces are separate images and stay untouched) */
+  html.dark .ratio .seg { background-image:linear-gradient(rgba(10,14,20,.6), rgba(10,14,20,.6)); }
+  html.dark .cards i { background-image:linear-gradient(rgba(10,14,20,.38), rgba(10,14,20,.38)); }
+  html.dark .cards i.notype { background-image:repeating-linear-gradient(45deg, rgba(0,0,0,.3) 0 2px, transparent 2px 5px) !important; }
+  html.dark .ratio, html.dark .cards { border-color:#333c49; }
+  html.dark .cards i { border-right-color:var(--card); }
+  html.dark tr.insprint td { background:rgba(0,187,167,.06); }
+  html.dark tr.innext td { background:rgba(255,152,0,.04); }
+  html.dark th { background:var(--card); border-bottom-color:#2f3844; }
+  html.dark td { border-bottom-color:#212832; }
   html.dark .chip.heat-hot  { background:rgba(248,81,73,.15); color:#ff8b85; border-color:rgba(248,81,73,.4); }
   html.dark .chip.heat-warm { background:rgba(210,153,34,.15); color:#e3b341; border-color:rgba(210,153,34,.4); }
 </style>
