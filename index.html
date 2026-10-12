@@ -28,14 +28,6 @@
           --surface-soft:#f8fafc; --cream:#f5e9d4; --link:#1b61c9; --link-active:#1a3866;
           --focus:#458fff;
           --card:var(--canvas); --line:var(--hairline); --late:#b45309; }
-  /* Dark mode: the page is full of hard-coded light colours, so it is inverted as a whole
-     and hue-rotated back, which keeps the status and type hues. Photos are inverted again
-     so they stay normal. Only the parts that are not position:fixed ancestors get the filter,
-     so tooltips, toasts and the modal still sit where they should. */
-  html.dark body { background:#141414; }
-  html.dark :is(header, .card, #tip, #toasts, #ideaModal) { filter:invert(.92) hue-rotate(180deg); }
-  html.dark :is(img, video) { filter:invert(1) hue-rotate(180deg); }
-  html.dark { color-scheme:dark; }
   * { box-sizing:border-box; }
   body { margin:0; padding:32px; background:var(--canvas); color:var(--body);
          font:14px/1.4 "Inter",-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,
@@ -612,6 +604,64 @@
   @media (prefers-reduced-motion:reduce) {
     #signin, #signin .shimmer, #signin .text { animation:none; transition:none; scale:1 !important; }
   }
+
+  /* ---- dark theme: a real palette, not an inversion. Data colours (status, type, repo)
+     are pastel already and stay as they are; only chrome, vis defaults and tints change. ---- */
+  html.dark { color-scheme:dark;
+    --canvas:#0f1318; --card:#161b22; --ink:#e6eaf0; --ink-active:#ffffff; --body:#c2c9d3;
+    --muted:#8b95a4; --soft-muted:#5d6877; --hairline:#2a313c; --surface-soft:#1d242d;
+    --link:#6cb0ff; --link-active:#a8d0ff; --focus:#58a6ff; --late:#f0a04b; }
+  html.dark body { background:var(--canvas); }
+  html.dark button.primary { background:var(--ink); border-color:var(--ink); color:#0f1318; }
+  html.dark button.primary:hover { background:#fff; }
+  html.dark input::placeholder { color:var(--soft-muted); }
+  html.dark .pill.running  { background:rgba(56,139,253,.18); color:#7ab8ff; }
+  html.dark .pill.slipped  { background:rgba(240,136,62,.18); color:#f0985a; }
+  html.dark .pill.upcoming { background:rgba(210,153,34,.18); color:#e3b341; }
+  html.dark .pill.closed   { background:rgba(139,148,158,.16); color:#9aa4b2; }
+  /* vis-timeline ships light defaults */
+  html.dark .vis-timeline, html.dark .vis-panel.vis-center, html.dark .vis-panel.vis-left,
+  html.dark .vis-panel.vis-top, html.dark .vis-panel.vis-bottom { border-color:var(--hairline); }
+  html.dark .vis-time-axis .vis-text { color:var(--muted); }
+  html.dark .vis-time-axis .vis-grid.vis-minor { border-color:#222934; }
+  html.dark .vis-time-axis .vis-grid.vis-major { border-color:#333c49; }
+  html.dark .vis-labelset .vis-label { color:var(--body); border-bottom-color:#222934; }
+  html.dark .vis-labelset .vis-label.g-closed { color:#6f7a89; }
+  html.dark .vis-foreground .vis-group { border-bottom-color:#222934; }
+  html.dark .vis-item { background:var(--card); border-color:rgba(255,255,255,.28); color:var(--ink); }
+  html.dark .vis-item.st-closed { background:#1c222b; border-color:rgba(255,255,255,.14); }
+  html.dark .vis-item.st-slipped { border-color:#e8803a; }
+  html.dark .vis-item.can-drag::after { background:rgba(255,255,255,.35); border-left-color:rgba(255,255,255,.6); }
+  /* white seams between card blocks, as in light mode */
+  html.dark .blocks i { border-right-color:rgba(255,255,255,.85); }
+  html.dark .blocks i::after { color:rgba(15,19,24,.55); }
+  html.dark .blocks.shut i::after { color:rgba(255,255,255,.4); }
+  html.dark .vis-item.vis-background.off { background:rgba(255,255,255,.035); }
+  html.dark .vis-item.vis-background.holiday { background:rgba(240,80,90,.09); }
+  html.dark .vis-labelset .vis-label.rowlit { background:rgba(255,255,255,.05); }
+  html.dark .vis-foreground .vis-group.rowlit { background:rgba(255,255,255,.035); }
+  html.dark #sprint b { color:#5eead4; }
+  html.dark #sprintNext b { color:#fdba74; }
+  html.dark .vis-current-time { background:#ff6b6b; }
+  /* tooltips and toasts are light-on-dark in light mode; in dark they become raised panels */
+  html.dark #tip, html.dark .toast { background:#262e3a; color:var(--ink);
+    box-shadow:0 6px 20px rgba(0,0,0,.5); }
+  html.dark .vis-custom-time.cursor > .vis-custom-time-marker { background:#262e3a; color:var(--ink); }
+  html.dark #ideaModal { background:rgba(0,0,0,.6); }
+  /* Plan tab tints */
+  html.dark .qcell[data-e="fast"][data-i="high"] { background:rgba(63,185,80,.12); border-color:rgba(63,185,80,.35); }
+  html.dark .qcell[data-e="slow"][data-i="high"] { background:rgba(56,139,253,.12); border-color:rgba(56,139,253,.35); }
+  html.dark .qcell[data-e="fast"][data-i="low"]  { background:rgba(210,153,34,.12); border-color:rgba(210,153,34,.35); }
+  html.dark .qcell[data-e="slow"][data-i="low"]  { background:rgba(139,148,158,.10); border-color:rgba(139,148,158,.3); }
+  html.dark .qcell[data-e="fast"][data-i="high"] .qhead { color:#56d364; }
+  html.dark .qcell[data-e="slow"][data-i="high"] .qhead { color:#79b8ff; }
+  html.dark .qcell[data-e="fast"][data-i="low"] .qhead { color:#e3b341; }
+  html.dark .qcell[data-e="slow"][data-i="low"] .qhead { color:#9aa4b2; }
+  html.dark .qwm, html.dark .qcell .qwm { color:rgba(255,255,255,.08); }
+  html.dark #qtoday { background:rgba(240,136,62,.10); }
+  html.dark .qnote.brief, html.dark .chip.briefpill { background:rgba(219,97,162,.12); }
+  html.dark .chip.heat-hot  { background:rgba(248,81,73,.15); color:#ff8b85; border-color:rgba(248,81,73,.4); }
+  html.dark .chip.heat-warm { background:rgba(210,153,34,.15); color:#e3b341; border-color:rgba(210,153,34,.4); }
 </style>
 </head>
 <body>
@@ -1410,6 +1460,7 @@ function blocksEl(r, i) {
   wrap.dataset.id = i
   wrap.dataset.tip = itemTooltip(r)
   const grey = r.state === 'closed'
+  if (grey) wrap.classList.add('shut')
   for (const n of liveNotes()) {
     if (isArch(n) || n.ms !== r.title) continue
     const l = elem('i', 'idealine')
@@ -1418,8 +1469,9 @@ function blocksEl(r, i) {
   }
   for (const c of r.cards) {
     const b = elem('i', (c.type === 'no type' ? 'notype' : '') + (matchCard(c) ? ' hit' : ''))
-    b.style.background = grey ? '#dde2e7' : (STATUS_COLOR[c.status] || '#afb8c1')
-    b.style.borderBottomColor = grey ? '#c6cdd5' : (TYPE_COLOR[c.type] || TYPE_COLOR['no type'])
+    const dk = document.documentElement.classList.contains('dark')
+    b.style.background = grey ? (dk ? '#2b333e' : '#dde2e7') : (STATUS_COLOR[c.status] || '#afb8c1')
+    b.style.borderBottomColor = grey ? (dk ? '#363f4b' : '#c6cdd5') : (TYPE_COLOR[c.type] || TYPE_COLOR['no type'])
     b.dataset.repo = c.repo === 'zai-bo-frontend' ? 'B/O' : REPO_SHORT[c.repo]
     if (c.title && c.title.includes('🎨')) b.classList.add('nogo')
     b.dataset.tip = cardTip(c)
@@ -3121,6 +3173,7 @@ $('recenter').onclick = recenter
 $('theme').onclick = () => {
   const dark = document.documentElement.classList.toggle('dark')
   try { localStorage.setItem('theme', dark ? 'dark' : 'light') } catch (e) {}
+  if (rowsCache.length) { drawTable(); drawTimeline(rowsCache) }   // closed blocks are coloured in JS
 }
 $('fitAllTime').onclick = () => timeline && timeline.fit()
 $('older').onclick = () => {
