@@ -12,7 +12,7 @@ for name, state in [('q-open.graphql','states:OPEN'),
       'repository(owner:$owner,name:$name){ milestones(first:$ms, %s){ nodes{ %s } } } }' % (state, ms))
 PY
 rm -f raw.ndjson
-for r in zai-backend zai-frontend zai-bo-frontend ingfah-rag ingfah-dev-docs zai-docs; do
+for r in zai-backend zai-frontend zai-bo-frontend ingfah-rag ingfah-dev-docs zai-docs livekit-agent livekit-sip-proxy; do
   gh api graphql -F query=@q-open.graphql -F owner=100x-fi -F name=$r -F ms=30 -F iss=70 \
     --jq ".data.repository.milestones.nodes[] | . + {repo:\"$r\", isClosed:false}" >> raw.ndjson
   gh api graphql -F query=@q-closed.graphql -F owner=100x-fi -F name=$r -F ms=20 -F iss=70 \

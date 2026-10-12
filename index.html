@@ -856,7 +856,8 @@
 <script src="https://cdn.jsdelivr.net/npm/vis-timeline@7.7.3/standalone/umd/vis-timeline-graph2d.min.js"></script>
 <script type="module">
 const OWNER = '100x-fi'
-const REPOS = ['zai-backend','zai-frontend','zai-bo-frontend','ingfah-rag','ingfah-dev-docs','zai-docs']
+const REPOS = ['zai-backend','zai-frontend','zai-bo-frontend','ingfah-rag','ingfah-dev-docs','zai-docs',
+               'livekit-agent','livekit-sip-proxy']
 const BOARD_NUMBER = 6                      // the project the statuses are read from
 const PROJECT_SLICE = 'https://github.com/orgs/100x-fi/projects/6/views/5?sliceBy%5Bvalue%5D='
 
@@ -903,9 +904,11 @@ const DONE_FIRST_KEYS = DONE_FIRST.map(b => b.s)
 // 47 apart in Lab space, closest repo to any status or type colour is 34.6, and 30 is the
 // point where two colours stop being confusable. Several are Okabe-Ito colourblind-safe hues.
 const REPO_COLOR = { 'zai-backend':'#0072B2', 'zai-frontend':'#D55E00', 'zai-bo-frontend':'#b3123c',
-                     'ingfah-rag':'#6b2d8f', 'ingfah-dev-docs':'#4a6b00', 'zai-docs':'#00695c' }
+                     'ingfah-rag':'#6b2d8f', 'ingfah-dev-docs':'#4a6b00', 'zai-docs':'#00695c',
+                     'livekit-agent':'#7a5c00', 'livekit-sip-proxy':'#CC79A7' }
 const REPO_SHORT = { 'zai-backend':'BE', 'zai-frontend':'FE', 'zai-bo-frontend':'FE B/O',
-                     'ingfah-rag':'RAG', 'ingfah-dev-docs':'DOCS', 'zai-docs':'ZDOCS' }
+                     'ingfah-rag':'RAG', 'ingfah-dev-docs':'DOCS', 'zai-docs':'ZDOCS',
+                     'livekit-agent':'LK', 'livekit-sip-proxy':'SIP' }
 
 // same hues as the Type field on the board, toned down: this bar is read as a proportion,
 // not as a warning light
