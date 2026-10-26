@@ -2,6 +2,8 @@ name = "ingfah-roadmap-auth"
 main = "worker.js"
 compatibility_date = "2026-08-18"
 workers_dev = true
+# the account that owns nammon-79f.workers.dev; this machine is logged in to two accounts
+account_id = "79f9a9fe98a0651c41220b6e44b1334c"
 
 [vars]
 # Fill in after creating the OAuth app. The secret does NOT go here — see README.md.
