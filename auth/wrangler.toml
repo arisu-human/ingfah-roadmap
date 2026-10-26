@@ -6,6 +6,6 @@ workers_dev = true
 [vars]
 # Fill in after creating the OAuth app. The secret does NOT go here — see README.md.
 GITHUB_CLIENT_ID  = "Ov23ligjYU8yfTEQgmUk"
-ALLOWED_ORIGINS   = "https://arisu-human.github.io"
+ALLOWED_ORIGINS   = "https://arisu-human.github.io,https://zai-speckit.nammon-79f.workers.dev"
 # both spellings: Pages serves the page at either, and GitHub echoes back whichever was sent
-ALLOWED_REDIRECTS = "https://arisu-human.github.io/ingfah-roadmap/,https://arisu-human.github.io/ingfah-roadmap/index.html"
+ALLOWED_REDIRECTS = "https://arisu-human.github.io/ingfah-roadmap/,https://arisu-human.github.io/ingfah-roadmap/index.html,https://zai-speckit.nammon-79f.workers.dev/roadmap/,https://zai-speckit.nammon-79f.workers.dev/roadmap/index.html"
